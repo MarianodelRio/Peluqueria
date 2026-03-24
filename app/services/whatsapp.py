@@ -4,8 +4,14 @@ import logging
 import time
 import httpx
 from app.config import WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN
+from app.utils import metrics
 
 logger = logging.getLogger(__name__)
+
+
+def _mask(phone: str) -> str:
+    """Mask phone for safe logging — show only last 4 digits."""
+    return f"****{phone[-4:]}" if len(phone) > 4 else "****"
 
 _BASE_URL = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
 _HEADERS = {
@@ -17,7 +23,7 @@ _HEADERS = {
 _client = httpx.Client(timeout=10)
 
 _MAX_RETRIES = 2
-_RETRY_DELAY = 1.0
+_RETRY_DELAYS = [1.0, 2.0]  # exponential backoff: 1s → 2s
 
 
 def _post(body: dict) -> bool:
@@ -32,21 +38,27 @@ def _post(body: dict) -> bool:
             response.raise_for_status()
             return True
         except httpx.HTTPStatusError as e:
-            if e.response.status_code < 500:
-                logger.error(f"[WA] HTTP {e.response.status_code} → {e.response.text}")
+            status = e.response.status_code
+            if status < 500:
+                # 4xx: bad payload or auth error — don't log response body (may contain tokens)
+                logger.error(f"[WA] HTTP {status} (client error) — check credentials/payload")
                 return False
+            delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
             if attempt < _MAX_RETRIES:
-                logger.warning(f"[WA] HTTP {e.response.status_code}, retry {attempt + 1}/{_MAX_RETRIES}")
-                time.sleep(_RETRY_DELAY)
+                logger.warning(f"[WA] HTTP {status}, retry {attempt + 1}/{_MAX_RETRIES} (delay {delay}s)")
+                time.sleep(delay)
             else:
-                logger.error(f"[WA] HTTP {e.response.status_code} → {e.response.text}")
+                logger.error(f"[WA] HTTP {status} (server error) after {_MAX_RETRIES} retries")
+                metrics.inc('whatsapp_errors')
                 return False
         except Exception as e:
+            delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
             if attempt < _MAX_RETRIES:
                 logger.warning(f"[WA] Request error (retry {attempt + 1}/{_MAX_RETRIES}): {e}")
-                time.sleep(_RETRY_DELAY)
+                time.sleep(delay)
             else:
                 logger.error(f"[WA] Request error: {e}")
+                metrics.inc('whatsapp_errors')
                 return False
     return False
 
@@ -61,7 +73,7 @@ def send_text_message(to: str, text: str) -> bool:
         "text": {"body": text, "preview_url": False},
     })
     if ok:
-        logger.info(f"[WA] text → {to}: {text[:60]}")
+        logger.info(f"[WA] text → {_mask(to)}: {text[:60]}")
     return ok
 
 
@@ -77,7 +89,7 @@ def send_interactive(to: str, payload: dict) -> bool:
         **payload,
     })
     if ok:
-        logger.info(f"[WA] interactive({payload.get('interactive', {}).get('type')}) → {to}")
+        logger.info(f"[WA] interactive({payload.get('interactive', {}).get('type')}) → {_mask(to)}")
     return ok
 
 
@@ -94,5 +106,5 @@ def send_template(to: str, template_name: str, lang: str, components: list) -> b
         },
     })
     if ok:
-        logger.info(f"[WA] template({template_name}) → {to}")
+        logger.info(f"[WA] template({template_name}) → {_mask(to)}")
     return ok

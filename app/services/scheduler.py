@@ -3,6 +3,7 @@
 APScheduler background jobs.
 """
 import logging
+import time
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -19,6 +20,7 @@ from app.config import (
 from app.services import calendar as cal_service
 from app.services.calendar import _get_service
 from app.services import whatsapp as wa_service
+from app.utils import metrics
 from app.utils.parser import parse_estado
 from app.utils.slots import format_date_es
 from app.handlers.conversation import clean_expired_states
@@ -31,7 +33,9 @@ def job_sync_citas_manuales():
     Find manual calendar events with Telefono: and Estado: pendiente.
     Send confirmation and mark Estado: confirmada (idempotent).
     """
-    logger.info("[JOB] Running: sync_citas_manuales")
+    t0 = time.time()
+    logger.info("[JOB] START sync_citas_manuales")
+    metrics.inc('scheduler_sync_manual_runs')
     try:
         events = cal_service.get_eventos_manuales_sin_confirmar()
         for ev in events:
@@ -40,7 +44,7 @@ def job_sync_citas_manuales():
             fresh = service.events().get(
                 calendarId=GOOGLE_CALENDAR_ID,
                 eventId=ev['id']
-            ).execute()
+            ).execute(num_retries=2)
             fresh_desc = fresh.get('description', '') or ''
             if parse_estado(fresh_desc) == 'confirmada':
                 logger.info(f"[JOB] Manual event {ev['id']} already confirmed, skipping")
@@ -81,7 +85,9 @@ def job_sync_citas_manuales():
             else:
                 logger.warning(f"[JOB] Failed to send manual confirmation: {ev['id']}")
     except Exception as e:
-        logger.error(f"[JOB] Error in sync_citas_manuales: {e}")
+        logger.error(f"[JOB] ERROR sync_citas_manuales: {e}", exc_info=True)
+    finally:
+        logger.info(f"[JOB] END sync_citas_manuales ({time.time() - t0:.1f}s)")
 
 
 def job_enviar_recordatorios():
@@ -89,7 +95,9 @@ def job_enviar_recordatorios():
     Find appointments in 23-25h window with Reminder24h: no.
     Send template reminder with confirm/cancel buttons.
     """
-    logger.info("[JOB] Running: enviar_recordatorios")
+    t0 = time.time()
+    logger.info("[JOB] START enviar_recordatorios")
+    metrics.inc('scheduler_recordatorios_runs')
     try:
         citas = cal_service.get_citas_para_recordatorio()
         for cita in citas:
@@ -132,16 +140,22 @@ def job_enviar_recordatorios():
             else:
                 logger.warning(f"[JOB] Failed to send reminder: {cita['id']}")
     except Exception as e:
-        logger.error(f"[JOB] Error in enviar_recordatorios: {e}")
+        logger.error(f"[JOB] ERROR enviar_recordatorios: {e}", exc_info=True)
+    finally:
+        logger.info(f"[JOB] END enviar_recordatorios ({time.time() - t0:.1f}s)")
 
 
 def job_limpiar_estados_conversacion():
     """Remove expired conversation states (> 30 min inactive)."""
-    logger.info("[JOB] Running: limpiar_estados_conversacion")
+    t0 = time.time()
+    logger.info("[JOB] START limpiar_estados_conversacion")
+    metrics.inc('scheduler_limpiar_runs')
     try:
         clean_expired_states()
     except Exception as e:
-        logger.error(f"[JOB] Error in limpiar_estados_conversacion: {e}")
+        logger.error(f"[JOB] ERROR limpiar_estados_conversacion: {e}", exc_info=True)
+    finally:
+        logger.info(f"[JOB] END limpiar_estados_conversacion ({time.time() - t0:.1f}s)")
 
 
 def create_scheduler() -> BackgroundScheduler:

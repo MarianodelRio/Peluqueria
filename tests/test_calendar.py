@@ -41,11 +41,15 @@ def make_all_day_event(event_id, summary, d: date):
 
 @pytest.fixture(autouse=True)
 def reset_thread_local():
-    """Force _get_service to rebuild on each test (avoid state leakage)."""
+    """Force _get_service to rebuild on each test (avoid state leakage).
+    Also clears the slot cache so tests don't interfere with each other.
+    """
     import app.services.calendar as cal
     if hasattr(cal._thread_local, "service"):
         del cal._thread_local.service
+    cal._slot_cache.clear()
     yield
+    cal._slot_cache.clear()
 
 
 @pytest.fixture
