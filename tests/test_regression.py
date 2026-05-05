@@ -53,6 +53,13 @@ class TestReminderConfirmChecksReturnValue:
     def test_confirm_success_sends_confirmed_message(self, mock_wa, mock_cal):
         """confirmar_cita succeeds → user sees 'confirmada'."""
         mock_cal.confirmar_cita.return_value = True
+        mock_cal.get_citas_futuras.return_value = [{
+            'id': 'evt1',
+            'title': 'Corte de pelo - Test',
+            'description': 'Nombre: Test\nTelefono: 34600000001\nEstado: pendiente',
+            'start': TZ.localize(datetime(2026, 3, 23, 10, 0)),
+            'end':   TZ.localize(datetime(2026, 3, 23, 10, 30)),
+        }]
         send(interactive_id="reminder_confirm_evt1")
         args = mock_wa.send_text_message.call_args_list
         texts = [call.args[1] for call in args]
@@ -61,6 +68,13 @@ class TestReminderConfirmChecksReturnValue:
     def test_confirm_failure_sends_error_message(self, mock_wa, mock_cal):
         """confirmar_cita fails → user sees error, NOT false 'confirmada'."""
         mock_cal.confirmar_cita.return_value = False
+        mock_cal.get_citas_futuras.return_value = [{
+            'id': 'evt1',
+            'title': 'Corte de pelo - Test',
+            'description': 'Nombre: Test\nTelefono: 34600000001\nEstado: pendiente',
+            'start': TZ.localize(datetime(2026, 3, 23, 10, 0)),
+            'end':   TZ.localize(datetime(2026, 3, 23, 10, 30)),
+        }]
         send(interactive_id="reminder_confirm_evt1")
         args = mock_wa.send_text_message.call_args_list
         texts = [call.args[1] for call in args]
