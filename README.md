@@ -9,10 +9,20 @@ Los clientes reservan, consultan y cancelan citas por WhatsApp. El peluquero ges
 
 ### El cliente (por WhatsApp)
 1. Escribe cualquier mensaje → el bot muestra el menú principal
-2. Elige **Pedir cita** → selecciona día y hora
+2. Elige **Pedir cita** → selecciona el servicio → selecciona día y hora
 3. Escribe su nombre → la cita queda registrada en Calendar
 4. Puede consultar sus citas o cancelarlas en cualquier momento
 5. Recibe un recordatorio automático ~24h antes con botones de confirmar/cancelar
+
+### Servicios disponibles
+
+| Servicio | Precio | Duración |
+|----------|--------|----------|
+| Corte de pelo | 10 € | 30 min |
+| Corte de pelo + barba | 12 € | 30 min |
+| Mechas | 20 € | 2 h |
+
+La duración determina cuántos slots se bloquean tras una reserva y el horario de fin del evento en Google Calendar.
 
 ### El peluquero (desde Google Calendar)
 - Crea eventos con `Telefono: +34XXXXXXXXX` en la descripción → el sistema envía confirmación automática por WhatsApp
@@ -186,8 +196,8 @@ ngrok mostrará una URL como `https://abc123.ngrok-free.app`.
 
 ```bash
 curl http://localhost:8000/health
-# {"status":"ok","calendar":"ok"}   ← todo correcto
-# {"status":"degraded","calendar":"error"}  ← problema con Calendar API
+# {"status":"ok","calendar":"ok","metrics":{...}}   ← todo correcto
+# {"status":"degraded","calendar":"error","metrics":{...}}  ← problema con Calendar API
 ```
 
 ### Producción (servidor Linux)

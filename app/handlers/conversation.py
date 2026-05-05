@@ -6,7 +6,6 @@ States:
   MENU                   - main menu
   BOOK_SELECT_DAY        - user choosing a day
   BOOK_SELECT_HOUR       - user choosing a time slot
-  BOOK_CONFIRM           - user confirming booking summary
   VIEW_APPOINTMENTS      - showing user's future appointments
   CANCEL_SELECT          - user choosing which appointment to cancel
   CANCEL_CONFIRM         - user confirming cancellation
@@ -23,19 +22,20 @@ from datetime import date, datetime
 from typing import Optional
 import pytz
 
-from app.config import TIMEZONE, ESTADO_EXPIRACION_MIN, HORARIO_BASE, BOOKING_WINDOW_DAYS
+from app.config import TIMEZONE, ESTADO_EXPIRACION_MIN, HORARIO_BASE, BOOKING_WINDOW_DAYS, SERVICIOS
 from app.services import calendar as cal
 from app.services import whatsapp as wa
 from app.utils.interactive import (
     build_main_menu, build_days_list, build_period_select, build_hours_list,
-    build_booking_confirm, build_appointments_view,
+    build_appointments_view,
     build_cancel_select, build_cancel_confirm,
+    build_service_select,
 )
 from app.utils.slots import get_next_days
 from app.utils.messages import (
     msg_sin_slots, msg_doble_reserva, msg_slot_no_disponible,
     msg_cita_confirmada, msg_cancelacion_ok, msg_cancelacion_abortada,
-    msg_sin_citas,
+    msg_sin_citas, msg_error_creando_cita,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,11 +43,11 @@ TZ = pytz.timezone(TIMEZONE)
 
 # ── State constants ────────────────────────────────────────────────────────
 MENU = "MENU"
+BOOK_SELECT_SERVICE = "BOOK_SELECT_SERVICE"
 BOOK_SELECT_DAY = "BOOK_SELECT_DAY"
 BOOK_SELECT_PERIOD = "BOOK_SELECT_PERIOD"
 BOOK_SELECT_HOUR = "BOOK_SELECT_HOUR"
 BOOK_ENTER_NAME = "BOOK_ENTER_NAME"
-BOOK_CONFIRM = "BOOK_CONFIRM"
 VIEW_APPOINTMENTS = "VIEW_APPOINTMENTS"
 CANCEL_SELECT = "CANCEL_SELECT"
 CANCEL_CONFIRM = "CANCEL_CONFIRM"
@@ -61,8 +61,10 @@ class ConversationState:
     all_day_slots: list = field(default_factory=list)   # all slots for selected day
     available_slots: list = field(default_factory=list)  # slots for selected period
     selected_slot: Optional[str] = None
+    selected_service: Optional[dict] = field(default=None)
     nombre: Optional[str] = None
     cancel_event_id: Optional[str] = None
+    cancel_citas: list = field(default_factory=list)
     last_interaction: datetime = field(
         default_factory=lambda: datetime.now(pytz.timezone(TIMEZONE))
     )
@@ -159,11 +161,11 @@ def _process_message(phone: str, text: Optional[str], interactive_id: Optional[s
     # Route by state
     dispatch = {
         MENU:                _handle_menu,
+        BOOK_SELECT_SERVICE: _handle_book_select_service,
         BOOK_SELECT_DAY:     _handle_book_select_day,
         BOOK_SELECT_PERIOD:  _handle_book_select_period,
         BOOK_SELECT_HOUR:    _handle_book_select_hour,
         BOOK_ENTER_NAME:     _handle_book_enter_name,
-        BOOK_CONFIRM:        _handle_book_confirm,
         VIEW_APPOINTMENTS:   _handle_view_appointments,
         CANCEL_SELECT:       _handle_cancel_select,
         CANCEL_CONFIRM:      _handle_cancel_confirm,
@@ -214,14 +216,9 @@ def _go_to_hour_select(phone: str, state: ConversationState, d: date, slots: lis
 
 def _handle_menu(phone: str, state: ConversationState, value: str):
     if value == "menu_book":
-        days = get_next_days(BOOKING_WINDOW_DAYS)
-        if not days:
-            wa.send_text_message(phone, msg_sin_slots())
-            wa.send_interactive(phone, build_main_menu())
-            return
-        state.available_days = days
-        state.step = BOOK_SELECT_DAY
-        wa.send_interactive(phone, build_days_list(days))
+        state.step = BOOK_SELECT_SERVICE
+        wa.send_interactive(phone, build_service_select())
+        return
 
     elif value == "menu_view":
         citas = cal.get_citas_futuras(phone)
@@ -234,12 +231,38 @@ def _handle_menu(phone: str, state: ConversationState, value: str):
             wa.send_text_message(phone, msg_sin_citas())
             _to_menu(phone)
             return
+        state.cancel_citas = citas
         state.step = CANCEL_SELECT
         wa.send_interactive(phone, build_cancel_select(citas))
 
     else:
         # First contact or unrecognized → show menu
         wa.send_interactive(phone, build_main_menu())
+
+
+# ── BOOK: SELECT SERVICE ───────────────────────────────────────────────────
+
+def _handle_book_select_service(phone: str, state: ConversationState, value: str):
+    service_map = {
+        "service_corte":       "corte",
+        "service_corte_barba": "corte_barba",
+        "service_mechas":      "mechas",
+    }
+    key = service_map.get(value)
+    if not key:
+        _to_menu(phone)
+        return
+    state.selected_service = SERVICIOS[key]
+    days = get_next_days(BOOKING_WINDOW_DAYS)
+    available_days = [d for d in days if cal.get_slots_disponibles(
+        d, duracion_min=state.selected_service['duracion_min'])]
+    if not available_days:
+        wa.send_text_message(phone, msg_sin_slots())
+        _to_menu(phone)
+        return
+    state.available_days = available_days
+    state.step = BOOK_SELECT_DAY
+    wa.send_interactive(phone, build_days_list(available_days))
 
 
 # ── BOOK: SELECT DAY ───────────────────────────────────────────────────────
@@ -268,6 +291,10 @@ def _base_period_ranges(d: date) -> tuple:
 
 
 def _handle_book_select_day(phone: str, state: ConversationState, value: str):
+    if not state.selected_service:
+        _to_menu(phone)
+        return
+
     if not value.startswith("day_"):
         _to_menu(phone)
         return
@@ -282,7 +309,7 @@ def _handle_book_select_day(phone: str, state: ConversationState, value: str):
         _to_menu(phone)
         return
 
-    slots = cal.get_slots_disponibles(selected_date)
+    slots = cal.get_slots_disponibles(selected_date, duracion_min=state.selected_service['duracion_min'])
     if not slots:
         wa.send_text_message(phone, msg_sin_slots())
         wa.send_interactive(phone, build_days_list(state.available_days))
@@ -359,48 +386,22 @@ def _handle_book_enter_name(phone: str, state: ConversationState, value: str):
     if len(nombre) > _NOMBRE_MAX_LEN:
         wa.send_text_message(phone, "El nombre es demasiado largo. Por favor, escribe tu nombre.")
         return
-    state.nombre = nombre
-    state.step = BOOK_CONFIRM
-    wa.send_interactive(phone, build_booking_confirm(state.selected_date, state.selected_slot))
 
-
-# ── BOOK: CONFIRM ──────────────────────────────────────────────────────────
-
-def _handle_book_confirm(phone: str, state: ConversationState, value: str):
-    if value == "book_change_hour":
-        # Refresh slots — use _go_to_hour_select so slot count never exceeds
-        # WhatsApp's 8-row limit (period picker shown when both periods available)
-        slots = cal.get_slots_disponibles(state.selected_date)
-        if not slots:
-            wa.send_text_message(phone, msg_sin_slots())
-            state.step = BOOK_SELECT_DAY
-            wa.send_interactive(phone, build_days_list(state.available_days))
-            return
-        _go_to_hour_select(phone, state, state.selected_date, slots)
-        return
-
-    if value != "book_confirm":
-        _to_menu(phone)
-        return
-
-    # Guard: state must be fully populated (defensive — should always be set
-    # by the time we reach BOOK_CONFIRM, but protects against corrupted state)
     if not state.selected_date or not state.selected_slot:
-        logger.error(f"[CONV] book_confirm reached with incomplete state for {phone}")
+        logger.error("[CONV] _handle_book_enter_name: incomplete state for %s", phone)
         _to_menu(phone)
         return
 
+    state.nombre = nombre
     d = state.selected_date
     hora = state.selected_slot
 
-    # Atomic: lock slot → re-validate → create (prevents race conditions)
-    event_id, reason = cal.reservar_cita(d, hora, state.nombre or "Cliente", phone)
+    event_id, reason = cal.reservar_cita(d, hora, nombre, phone, state.selected_service)
 
     if reason == 'slot_taken':
         logger.warning(f"[CONV] Slot {d} {hora} taken for {phone}")
-        slots = cal.get_slots_disponibles(d)
+        slots = cal.get_slots_disponibles(d, duracion_min=state.selected_service['duracion_min'])
         if slots:
-            # Use helper: never pass >8 slots to build_hours_list directly
             wa.send_text_message(phone, msg_slot_no_disponible())
             _go_to_hour_select(phone, state, d, slots)
         else:
@@ -414,11 +415,11 @@ def _handle_book_confirm(phone: str, state: ConversationState, value: str):
         _to_menu(phone)
 
     elif reason == 'error':
-        wa.send_text_message(phone, "Ha ocurrido un error al crear tu cita. Inténtalo de nuevo.")
+        wa.send_text_message(phone, msg_error_creando_cita())
         _to_menu(phone)
 
     else:
-        wa.send_text_message(phone, msg_cita_confirmada())
+        wa.send_text_message(phone, msg_cita_confirmada(d, hora, state.selected_service))
         _clear(phone)
 
 
@@ -441,8 +442,8 @@ def _handle_cancel_select(phone: str, state: ConversationState, value: str):
         _to_menu(phone)
         return
 
-    # Fetch event details to show in confirmation
-    citas = cal.get_citas_futuras(phone)
+    # Look up event in cached citas
+    citas = state.cancel_citas
     cita = next((c for c in citas if c['id'] == event_id), None)
     if not cita:
         wa.send_text_message(phone, "No se encontró esa cita.")
@@ -491,6 +492,12 @@ def _handle_reminder_response(phone: str, interactive_id: str):
     """
     if interactive_id.startswith("reminder_confirm_"):
         event_id = interactive_id.removeprefix("reminder_confirm_")
+        citas = cal.get_citas_futuras(phone)
+        cita = next((c for c in citas if c['id'] == event_id), None)
+        if not cita:
+            wa.send_text_message(phone, "No se encontró esa cita.")
+            _to_menu(phone)
+            return
         if cal.confirmar_cita(event_id):
             wa.send_text_message(phone, "¡Tu cita está confirmada! ✅")
         else:

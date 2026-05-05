@@ -66,6 +66,17 @@ class TestGenerateSlots:
         assert len(slots) == 60 // CITA_DURACION_MIN
         assert "11:00" not in slots
 
+    def test_duracion_120_produces_correct_slots(self):
+        # 10:00-14:00 with 120-min duration → 10:00 and 12:00 only
+        slots = generate_slots("10:00", "14:00", duracion_min=120)
+        assert slots == ["10:00", "12:00"]
+
+    def test_default_duracion_backward_compat(self):
+        # No third arg → same as before (30-min slots)
+        slots_default = generate_slots("10:00", "14:00")
+        slots_explicit = generate_slots("10:00", "14:00", duracion_min=30)
+        assert slots_default == slots_explicit
+
 
 # ── get_base_slots_for_day ────────────────────────────────────────────────────
 
@@ -88,6 +99,13 @@ class TestGetBaseSlotsForDay:
         friday = date(2026, 3, 27)
         slots = get_base_slots_for_day(friday)
         assert slots == _slots_for_weekday(4)
+
+    def test_duracion_120_returns_fewer_slots_than_default(self):
+        monday = date(2026, 3, 23)
+        slots_30 = get_base_slots_for_day(monday)
+        slots_120 = get_base_slots_for_day(monday, duracion_min=120)
+        assert len(slots_120) < len(slots_30)
+        assert len(slots_120) > 0
 
 
 # ── slot_to_datetime ──────────────────────────────────────────────────────────
@@ -177,6 +195,24 @@ class TestFilterAvailableSlots:
     def test_empty_slots(self):
         d = date(2026, 3, 23)
         assert filter_available_slots([], d, []) == []
+
+    def test_duracion_120_blocks_wider_window(self):
+        # Slot at 10:00 with 120-min window; event at 11:30 overlaps → 10:00 blocked
+        d = date(2026, 3, 23)
+        slots = ["10:00"]
+        events = [{"start": aware(2026, 3, 23, 11, 30),
+                   "end":   aware(2026, 3, 23, 12, 0)}]
+        available = filter_available_slots(slots, d, events, duracion_min=120)
+        assert "10:00" not in available
+
+    def test_duracion_120_slot_free_when_event_outside_window(self):
+        # Event at 12:30 is outside the 10:00–12:00 window → slot is free
+        d = date(2026, 3, 23)
+        slots = ["10:00"]
+        events = [{"start": aware(2026, 3, 23, 12, 30),
+                   "end":   aware(2026, 3, 23, 13, 0)}]
+        available = filter_available_slots(slots, d, events, duracion_min=120)
+        assert "10:00" in available
 
 
 # ── get_next_days ─────────────────────────────────────────────────────────────

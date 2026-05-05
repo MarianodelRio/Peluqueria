@@ -1,9 +1,17 @@
 # utils/messages.py
 """Residual text messages used alongside interactive messages."""
+from datetime import date
+
+from app.utils.slots import format_date_es
 
 
-def msg_cita_confirmada() -> str:
-    return "¡Tu cita está confirmada! ✅"
+def msg_cita_confirmada(d: date, hora: str, servicio: dict) -> str:
+    return (
+        f"¡Tu cita está confirmada! ✅\n\n"
+        f"✂️ {servicio['nombre']} — {servicio['precio']}€\n"
+        f"📅 {format_date_es(d).capitalize()}\n"
+        f"🕒 {hora}"
+    )
 
 
 def msg_cancelacion_ok() -> str:
@@ -28,3 +36,7 @@ def msg_doble_reserva() -> str:
 
 def msg_slot_no_disponible() -> str:
     return "Ese horario ya no está disponible 😕"
+
+
+def msg_error_creando_cita() -> str:
+    return "Ha ocurrido un error al crear tu cita. Inténtalo de nuevo."

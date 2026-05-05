@@ -28,6 +28,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from app.config import MAX_CONCURRENT_HANDLERS, WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN
 from app.handlers.conversation import handle_message
 from app.utils import metrics
+from app.utils.security import mask_phone
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -40,7 +41,7 @@ _handler_semaphore = threading.Semaphore(MAX_CONCURRENT_HANDLERS)
 def _handle_with_semaphore(phone: str, text, interactive_id):
     """Acquire semaphore before processing; release when done."""
     if not _handler_semaphore.acquire(blocking=False):
-        logger.warning(f"[WEBHOOK] Handler capacity exceeded, dropping message from {_mask_phone(phone)}")
+        logger.warning(f"[WEBHOOK] Handler capacity exceeded, dropping message from {mask_phone(phone)}")
         metrics.inc('handler_dropped')
         return
     try:
@@ -120,11 +121,6 @@ _PHONE_RE = re.compile(r'^\d{7,15}$')
 def _validate_phone(phone: str) -> bool:
     """Validate phone: digits only, E.164 length (7–15 digits)."""
     return bool(_PHONE_RE.match(phone))
-
-
-def _mask_phone(phone: str) -> str:
-    """Mask phone for safe logging — show only last 4 digits."""
-    return f"****{phone[-4:]}" if len(phone) > 4 else "****"
 
 
 # ── HMAC signature verification ────────────────────────────────────────────
@@ -228,19 +224,19 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 
             # 7. Validate phone format
             if not _validate_phone(phone):
-                logger.warning(f"[WEBHOOK] Invalid phone format: {_mask_phone(phone)}")
+                logger.warning(f"[WEBHOOK] Invalid phone format: {mask_phone(phone)}")
                 continue
 
             # 8. Per-phone rate limit
             if not _check_phone_rate_limit(phone):
-                logger.warning(f"[WEBHOOK] Phone rate limit exceeded for {_mask_phone(phone)}")
+                logger.warning(f"[WEBHOOK] Phone rate limit exceeded for {mask_phone(phone)}")
                 continue
 
             # 9. Count all inbound messages (before dedup) and deduplicate
             metrics.inc('messages_received')
             message_id = msg.get("id", "")
             if message_id and _is_duplicate(message_id):
-                logger.info(f"[WEBHOOK] Duplicate msg_id={message_id} from {_mask_phone(phone)}, skipping")
+                logger.info(f"[WEBHOOK] Duplicate msg_id={message_id} from {mask_phone(phone)}, skipping")
                 continue
 
             msg_type: str       = msg.get("type", "")
@@ -253,9 +249,9 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
                     continue
                 # 10. Text length limit
                 if len(text) > _MAX_TEXT_LEN:
-                    logger.warning(f"[WEBHOOK] Text too long from {_mask_phone(phone)}, truncating")
+                    logger.warning(f"[WEBHOOK] Text too long from {mask_phone(phone)}, truncating")
                     text = text[:_MAX_TEXT_LEN]
-                logger.info(f"[WEBHOOK] text from {_mask_phone(phone)}: {text[:80]}")
+                logger.info(f"[WEBHOOK] text from {mask_phone(phone)}: {text[:80]}")
 
             elif msg_type == "interactive":
                 interactive = msg.get("interactive", {})
@@ -268,13 +264,13 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
                     continue
                 # 11. Interactive ID length limit
                 if len(interactive_id) > _MAX_INTERACTIVE_ID_LEN:
-                    logger.warning(f"[WEBHOOK] interactive_id too long from {_mask_phone(phone)}, skipping")
+                    logger.warning(f"[WEBHOOK] interactive_id too long from {mask_phone(phone)}, skipping")
                     continue
-                logger.info(f"[WEBHOOK] interactive from {_mask_phone(phone)}: {interactive_id}")
+                logger.info(f"[WEBHOOK] interactive from {mask_phone(phone)}: {interactive_id}")
 
             else:
                 # audio, image, sticker, etc. → trigger fallback menu
-                logger.info(f"[WEBHOOK] unsupported type '{msg_type}' from {_mask_phone(phone)} → fallback")
+                logger.info(f"[WEBHOOK] unsupported type '{msg_type}' from {mask_phone(phone)} → fallback")
                 text = "__unknown__"
 
             # Dispatch to thread pool — never blocks the event loop

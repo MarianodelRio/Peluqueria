@@ -37,13 +37,18 @@ def make_event(event_id="evt1", title="Cita - Test", description="",
 
 
 def make_cita_description(nombre="Ana García", telefono="34600000001",
-                           estado="confirmada", recordatorio="no"):
-    return (
+                           estado="confirmada", recordatorio="no", servicio=None):
+    desc = (
         f"Nombre: {nombre}\n"
         f"Telefono: {telefono}\n"
+    )
+    if servicio is not None:
+        desc += f"Servicio: {servicio}\n"
+    desc += (
         f"Estado: {estado}\n"
         f"Recordatorio: {recordatorio}"
     )
+    return desc
 
 
 # ── Common mock fixtures ────────────────────────────────────────────────────

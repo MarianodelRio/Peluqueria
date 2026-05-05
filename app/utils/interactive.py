@@ -125,21 +125,15 @@ def build_hours_list(d: date, slots: List[str]) -> dict:
     )
 
 
-def build_booking_confirm(d: date, slot: str) -> dict:
-    """Summary + Confirm / Change hour / Back to menu."""
-    body = (
-        f"Resumen de tu cita:\n\n"
-        f"📅 {format_date_es(d).capitalize()}\n"
-        f"🕒 {slot}\n\n"
-        f"¿Confirmas la reserva?"
-    )
+def build_service_select() -> dict:
+    """Ask user to choose a service (3 reply buttons)."""
     return _interactive_buttons(
-        header="✅ Confirmar cita",
-        body=body,
+        header="✂️ Elige tu servicio",
+        body="¿Qué servicio quieres?",
         buttons=[
-            _button("book_confirm",      "✅ Confirmar cita"),
-            _button("book_change_hour",  "🕒 Cambiar hora"),
-            _button("back_to_menu",      "↩️ Volver al menú"),
+            _button("service_corte",      "✂️ Corte - 10€"),
+            _button("service_corte_barba", "✂️ Corte+Barba 12€"),
+            _button("service_mechas",     "🎨 Mechas - 20€"),
         ],
     )
 

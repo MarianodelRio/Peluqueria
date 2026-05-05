@@ -38,5 +38,3 @@ logs/
 *.swo
 .DS_Store
 
-# ── Claude Code internal ───────────────────────────────────────────────────────
-.claude/

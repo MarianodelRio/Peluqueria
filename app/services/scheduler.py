@@ -22,6 +22,7 @@ from app.services.calendar import _get_service
 from app.services import whatsapp as wa_service
 from app.utils import metrics
 from app.utils.parser import parse_estado
+from app.utils.security import mask_phone
 from app.utils.slots import format_date_es
 from app.handlers.conversation import clean_expired_states
 
@@ -81,7 +82,7 @@ def job_sync_citas_manuales():
             )
             if sent:
                 cal_service.marcar_manual_confirmado(ev['id'])
-                logger.info(f"[JOB] Manual confirmation sent: {ev['id']} tel={ev['telefono']}")
+                logger.info(f"[JOB] Manual confirmation sent: {ev['id']} tel={mask_phone(ev['telefono'])}")
             else:
                 logger.warning(f"[JOB] Failed to send manual confirmation: {ev['id']}")
     except Exception as e:
@@ -136,7 +137,7 @@ def job_enviar_recordatorios():
             )
             if sent:
                 cal_service.marcar_recordatorio_enviado(cita['id'])
-                logger.info(f"[JOB] Reminder sent: {cita['id']} tel={cita['telefono']}")
+                logger.info(f"[JOB] Reminder sent: {cita['id']} tel={mask_phone(cita['telefono'])}")
             else:
                 logger.warning(f"[JOB] Failed to send reminder: {cita['id']}")
     except Exception as e:

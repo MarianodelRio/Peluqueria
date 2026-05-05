@@ -147,6 +147,48 @@ def parse_cfg(title: str) -> Optional[dict]:
     return None
 
 
+def parse_servicio_from_title(title: str) -> tuple:
+    """
+    Parse service key from a Google Calendar event title.
+
+    Expected format: '<Servicio> - <Nombre>'
+    Separator may be ' - ' (hyphen) or ' – ' (em-dash).
+
+    Returns (key, nombre_original) where key is one of 'corte', 'corte_barba',
+    'mechas', or (None, None) if the title does not match any known service.
+
+    The right part (nombre) is returned as-is from the ORIGINAL title,
+    preserving original casing and accents.
+    """
+    if not title:
+        return (None, None)
+
+    # Normalise em-dash to ASCII hyphen in a copy so we can split reliably,
+    # but keep the original for extracting the right part.
+    normalised_title = title.replace('–', '-').replace('—', '-')
+
+    # Split on first ' - ' (with surrounding spaces)
+    if ' - ' not in normalised_title:
+        return (None, None)
+
+    left_orig, _, right_orig = normalised_title.partition(' - ')
+    # right_orig corresponds to the same position in the original title
+    prefix_len = len(left_orig) + 3  # len(' - ') == 3
+    right_part = title[prefix_len:]
+
+    left_norm = _norm(left_orig)
+
+    # Match order matters: most-specific first
+    if 'mechas' in left_norm:
+        return ('mechas', right_part.strip())
+    if any(kw in left_norm for kw in ('corte y barba', 'corte+barba', 'corte barba', 'corte_barba')):
+        return ('corte_barba', right_part.strip())
+    if 'corte' in left_norm:
+        return ('corte', right_part.strip())
+
+    return (None, None)
+
+
 def set_field(description: str, key: str, value: str) -> str:
     """
     Set or update a field in event description.

@@ -75,11 +75,12 @@ class TestReminderConfirmChecksReturnValue:
 class TestSlotTakenRecoveryRespectsPeriodLimit:
     def setup_confirm_state(self):
         import app.handlers.conversation as conv
+        from app.config import SERVICIOS
         state = conv._get(PHONE)
-        state.step = conv.BOOK_CONFIRM
+        state.step = conv.BOOK_ENTER_NAME
         state.selected_date = date(2026, 3, 23)
         state.selected_slot = "10:00"
-        state.nombre = "Ana"
+        state.selected_service = SERVICIOS["corte"]
         state.available_days = [date(2026, 3, 23)]
         return state
 
@@ -93,7 +94,7 @@ class TestSlotTakenRecoveryRespectsPeriodLimit:
             "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30",
             "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30",
         ]
-        send(interactive_id="book_confirm")
+        send(text="Ana")
         state = conv._get(PHONE)
         # Must go to period selection, not directly to hour selection
         assert state.step == conv.BOOK_SELECT_PERIOD
@@ -106,7 +107,7 @@ class TestSlotTakenRecoveryRespectsPeriodLimit:
         mock_cal.get_slots_disponibles.return_value = [
             "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30"
         ]
-        send(interactive_id="book_confirm")
+        send(text="Ana")
         state = conv._get(PHONE)
         assert state.step == conv.BOOK_SELECT_HOUR
         # Only morning slots → max 8 → within WhatsApp limit
@@ -116,34 +117,24 @@ class TestSlotTakenRecoveryRespectsPeriodLimit:
 class TestChangeHourRespectsPeriodLimit:
     def setup_confirm_state(self):
         import app.handlers.conversation as conv
+        from app.config import SERVICIOS
         state = conv._get(PHONE)
-        state.step = conv.BOOK_CONFIRM
+        state.step = conv.BOOK_ENTER_NAME
         state.selected_date = date(2026, 3, 23)
         state.selected_slot = "10:00"
-        state.nombre = "Ana"
+        state.selected_service = SERVICIOS["corte"]
         state.available_days = [date(2026, 3, 23)]
         return state
 
-    def test_change_hour_with_both_periods_shows_period_picker(self, mock_wa, mock_cal):
-        """book_change_hour with both periods → period picker, not raw 16-slot list."""
+    def test_slot_taken_only_afternoon_goes_direct(self, mock_wa, mock_cal):
+        """slot_taken with only afternoon slots → directly to hour select (within limit)."""
         import app.handlers.conversation as conv
         self.setup_confirm_state()
-        mock_cal.get_slots_disponibles.return_value = [
-            "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30",
-            "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30",
-        ]
-        send(interactive_id="book_change_hour")
-        state = conv._get(PHONE)
-        assert state.step == conv.BOOK_SELECT_PERIOD
-
-    def test_change_hour_only_afternoon_goes_direct(self, mock_wa, mock_cal):
-        """book_change_hour with only afternoon → directly to hour select."""
-        import app.handlers.conversation as conv
-        self.setup_confirm_state()
+        mock_cal.reservar_cita.return_value = (None, "slot_taken")
         mock_cal.get_slots_disponibles.return_value = [
             "16:00", "16:30", "17:00", "17:30"
         ]
-        send(interactive_id="book_change_hour")
+        send(text="Ana")
         state = conv._get(PHONE)
         assert state.step == conv.BOOK_SELECT_HOUR
         assert len(state.available_slots) <= 8
@@ -278,10 +269,13 @@ class TestCleanExpiredStatesThreadSafety:
 class TestNameMaxLength:
     def setup_state(self):
         import app.handlers.conversation as conv
+        from app.config import SERVICIOS
         state = conv._get(PHONE)
         state.step = conv.BOOK_ENTER_NAME
         state.selected_date = date(2026, 3, 23)
         state.selected_slot = "10:00"
+        state.selected_service = SERVICIOS["corte"]
+        state.available_days = [date(2026, 3, 23)]
         return state
 
     def test_very_long_name_rejected(self, mock_wa, mock_cal):
@@ -289,7 +283,7 @@ class TestNameMaxLength:
         import app.handlers.conversation as conv
         self.setup_state()
         send(text="A" * 200)
-        # State must stay in BOOK_ENTER_NAME (not advance to BOOK_CONFIRM)
+        # State must stay in BOOK_ENTER_NAME (not advance)
         state = conv._get(PHONE)
         assert state.step == conv.BOOK_ENTER_NAME
         assert state.nombre is None
@@ -298,17 +292,20 @@ class TestNameMaxLength:
     def test_normal_name_accepted(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         self.setup_state()
+        mock_cal.reservar_cita.return_value = ("evt_new", None)
         send(text="Ana García")
-        state = conv._get(PHONE)
-        assert state.step == conv.BOOK_CONFIRM
-        assert state.nombre == "Ana García"
+        # Valid name books directly and clears state
+        assert mock_wa.send_text_message.call_count >= 1
+        assert conv._states.get(PHONE) is None
 
     def test_boundary_100_chars_accepted(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         self.setup_state()
+        mock_cal.reservar_cita.return_value = ("evt_new", None)
         send(text="A" * 100)
-        state = conv._get(PHONE)
-        assert state.step == conv.BOOK_CONFIRM
+        # Valid name (exactly at limit) books directly and clears state
+        assert mock_wa.send_text_message.call_count >= 1
+        assert conv._states.get(PHONE) is None
 
     def test_boundary_101_chars_rejected(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -324,21 +321,23 @@ class TestBookConfirmNoneGuard:
     def test_confirm_with_none_selected_date_resets_to_menu(self, mock_wa, mock_cal):
         """If selected_date is None (corrupted state), go to menu instead of crashing."""
         import app.handlers.conversation as conv
+        from app.config import SERVICIOS
         state = conv._get(PHONE)
-        state.step = conv.BOOK_CONFIRM
+        state.step = conv.BOOK_ENTER_NAME
         state.selected_date = None  # corrupted
         state.selected_slot = "10:00"
-        state.nombre = "Ana"
-        send(interactive_id="book_confirm")
+        state.selected_service = SERVICIOS["corte"]
+        send(text="AnaGuard")
         # Should not raise; should reset to menu
         assert conv._states.get(PHONE) is None
 
     def test_confirm_with_none_selected_slot_resets_to_menu(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
+        from app.config import SERVICIOS
         state = conv._get(PHONE)
-        state.step = conv.BOOK_CONFIRM
+        state.step = conv.BOOK_ENTER_NAME
         state.selected_date = date(2026, 3, 23)
         state.selected_slot = None  # corrupted
-        state.nombre = "Ana"
-        send(interactive_id="book_confirm")
+        state.selected_service = SERVICIOS["corte"]
+        send(text="AnaGuard")
         assert conv._states.get(PHONE) is None

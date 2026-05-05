@@ -30,13 +30,20 @@ HORARIO_BASE = {
     5: [("10:00", "14:00")],                       # Saturday
 }
 
+# Services offered (key → display name, price in EUR, duration in minutes)
+SERVICIOS = {
+    "corte":       {"nombre": "Corte de pelo",        "precio": 10,  "duracion_min": 30},
+    "corte_barba": {"nombre": "Corte de pelo + barba", "precio": 12,  "duracion_min": 30},
+    "mechas":      {"nombre": "Mechas",                "precio": 20,  "duracion_min": 120},
+}
+
 # Appointment settings
 CITA_DURACION_MIN = 30
 ESTADO_EXPIRACION_MIN = 30
 BOOKING_WINDOW_DAYS = 7  # Calendar days to look ahead when offering available days
 
 # Scheduler intervals (minutes)
-SYNC_MANUAL_INTERVAL_MIN = 5
+SYNC_MANUAL_INTERVAL_MIN = 60
 RECORDATORIO_INTERVAL_MIN = 60
 LIMPIAR_ESTADOS_INTERVAL_MIN = 10
 
@@ -79,4 +86,4 @@ HTTP_TIMEOUT_SEC = 10
 SLOT_CACHE_TTL_SEC = 30
 
 # Concurrency
-MAX_CONCURRENT_HANDLERS = 20
+MAX_CONCURRENT_HANDLERS = 40

@@ -12,6 +12,7 @@ from app.utils.parser import (
     parse_estado,
     parse_reminder,
     parse_cfg,
+    parse_servicio_from_title,
     set_field,
     remove_field,
 )
@@ -260,6 +261,51 @@ class TestParseCfg:
     def test_horario_single_digit_hour(self):
         result = parse_cfg("[CFG] HORARIO 9:00-13:00")
         assert result == {"type": "horario", "start": "9:00", "end": "13:00"}
+
+
+# ── parse_servicio_from_title ─────────────────────────────────────────────────
+
+class TestParseServicioFromTitle:
+    def test_basic_corte(self):
+        assert parse_servicio_from_title("Corte - Juan Garcia") == ("corte", "Juan Garcia")
+
+    def test_corte_barba_y(self):
+        assert parse_servicio_from_title("Corte y barba - Paco") == ("corte_barba", "Paco")
+
+    def test_corte_barba_plus(self):
+        assert parse_servicio_from_title("Corte+barba - Paco") == ("corte_barba", "Paco")
+
+    def test_corte_barba_space(self):
+        assert parse_servicio_from_title("Corte barba - Paco") == ("corte_barba", "Paco")
+
+    def test_mechas(self):
+        assert parse_servicio_from_title("Mechas - Ana Lopez") == ("mechas", "Ana Lopez")
+
+    def test_unknown_returns_none(self):
+        assert parse_servicio_from_title("Tinte - Lucia") == (None, None)
+
+    def test_empty_string(self):
+        assert parse_servicio_from_title("") == (None, None)
+
+    def test_none_input(self):
+        assert parse_servicio_from_title(None) == (None, None)
+
+    def test_accent_tolerance(self):
+        # "Méchas" with accent on e — _norm strips it
+        assert parse_servicio_from_title("Méchas - Ángela") == ("mechas", "Ángela")
+
+    def test_nombre_original_casing_preserved(self):
+        # Right part returned with original casing
+        key, nombre = parse_servicio_from_title("Corte - María José")
+        assert key == "corte"
+        assert nombre == "María José"
+
+    def test_no_separator_returns_none(self):
+        assert parse_servicio_from_title("Corte Juan Garcia") == (None, None)
+
+    def test_em_dash_separator(self):
+        # em-dash (–) used as separator
+        assert parse_servicio_from_title("Corte – Juan Garcia") == ("corte", "Juan Garcia")
 
 
 # ── set_field ─────────────────────────────────────────────────────────────────

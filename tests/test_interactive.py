@@ -11,7 +11,7 @@ from app.utils.interactive import (
     build_period_select,
     build_days_list,
     build_hours_list,
-    build_booking_confirm,
+    build_service_select,
     build_appointments_view,
     build_cancel_select,
     build_cancel_confirm,
@@ -160,24 +160,32 @@ class TestBuildHoursList:
         assert len(rows) <= 10
 
 
-# ── build_booking_confirm ───────────────────────────────────────────────────────
+# ── build_service_select ────────────────────────────────────────────────────────
 
-class TestBuildBookingConfirm:
-    def test_structure(self):
-        msg = build_booking_confirm(date(2026, 3, 23), "10:00")
+class TestBuildServiceSelect:
+    def test_type_is_button(self):
+        msg = build_service_select()
+        assert msg["type"] == "interactive"
         assert msg["interactive"]["type"] == "button"
 
-    def test_three_buttons(self):
-        assert len(_buttons(build_booking_confirm(date(2026, 3, 23), "10:00"))) == 3
+    def test_exactly_three_buttons(self):
+        assert len(_buttons(build_service_select())) == 3
 
-    def test_confirm_button_present(self):
-        ids = {b["reply"]["id"] for b in _buttons(build_booking_confirm(date(2026, 3, 23), "10:00"))}
-        assert "book_confirm" in ids
+    def test_all_button_ids_start_with_service(self):
+        for b in _buttons(build_service_select()):
+            assert b["reply"]["id"].startswith("service_"), b["reply"]["id"]
 
-    def test_body_contains_date_and_slot(self):
-        msg = build_booking_confirm(date(2026, 3, 23), "10:00")
-        body = msg["interactive"]["body"]["text"]
-        assert "10:00" in body
+    def test_all_button_titles_under_20_chars(self):
+        for b in _buttons(build_service_select()):
+            assert len(b["reply"]["title"]) <= 20, b["reply"]["title"]
+
+    def test_specific_button_ids(self):
+        ids = {b["reply"]["id"] for b in _buttons(build_service_select())}
+        assert ids == {"service_corte", "service_corte_barba", "service_mechas"}
+
+    def test_price_in_button_titles(self):
+        titles = [b["reply"]["title"] for b in _buttons(build_service_select())]
+        assert any("€" in title for title in titles)
 
 
 # ── build_appointments_view ─────────────────────────────────────────────────────

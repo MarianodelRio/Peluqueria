@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, patch, call
 import pytz
 
-from app.config import HORARIO_BASE
+from app.config import HORARIO_BASE, SERVICIOS
 
 TZ = pytz.timezone("Europe/Madrid")
 
@@ -138,6 +138,47 @@ class TestGetSlotsDisponibles:
         assert "10:00" not in slots
         assert "10:30" in slots
 
+    def test_mechas_slot_blocked_when_event_in_2h_window(self, cal_with_service):
+        """An event at 11:30-12:00 blocks 10:00 when duration is 120 min."""
+        cal, svc = cal_with_service
+        monday = date(2026, 3, 23)
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt1", "Cita - Luis",
+                "Nombre: Luis\nTelefono: 34600000002\nEstado: confirmada\nRecordatorio: no",
+                aware(2026, 3, 23, 11, 30), aware(2026, 3, 23, 12, 0)
+            )]
+        }
+        slots = cal.get_slots_disponibles(monday, duracion_min=120)
+        assert "10:00" not in slots
+
+    def test_mechas_slot_free_when_event_outside_2h_window(self, cal_with_service):
+        """An event at 12:30-13:00 does not block 10:00 when duration is 120 min."""
+        cal, svc = cal_with_service
+        monday = date(2026, 3, 23)
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt1", "Cita - Luis",
+                "Nombre: Luis\nTelefono: 34600000002\nEstado: confirmada\nRecordatorio: no",
+                aware(2026, 3, 23, 12, 30), aware(2026, 3, 23, 13, 0)
+            )]
+        }
+        slots = cal.get_slots_disponibles(monday, duracion_min=120)
+        assert "10:00" in slots
+
+    def test_cache_key_includes_duracion_min(self, cal_with_service):
+        """Calling get_slots_disponibles with different duracion_min creates separate cache keys."""
+        import app.services.calendar as cal_module
+        d = date(2026, 3, 23)
+        cal_module.get_slots_disponibles(d, duracion_min=30)
+        cal_module.get_slots_disponibles(d, duracion_min=120)
+        keys = list(cal_module._slot_cache.keys())
+        key_30 = f"{d.isoformat()}_30"
+        key_120 = f"{d.isoformat()}_120"
+        assert key_30 in keys
+        assert key_120 in keys
+        assert key_30 != key_120
+
 
 # ── tiene_cita_ese_dia ─────────────────────────────────────────────────────────
 
@@ -172,23 +213,55 @@ class TestTieneCitaEseDia:
 class TestCrearCita:
     def test_creates_event_and_returns_id(self, cal_with_service):
         cal, svc = cal_with_service
-        event_id = cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001")
+        event_id = cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["corte"])
         assert event_id == "new_evt"
         svc.events.return_value.insert.return_value.execute.assert_called_once()
 
     def test_api_error_returns_none(self, cal_with_service):
         cal, svc = cal_with_service
         svc.events.return_value.insert.return_value.execute.side_effect = Exception("API error")
-        result = cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001")
+        result = cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["corte"])
         assert result is None
 
     def test_description_format(self, cal_with_service):
         cal, svc = cal_with_service
-        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana García", "34600000001")
+        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana García", "34600000001", servicio=SERVICIOS["corte"])
         body = svc.events.return_value.insert.call_args[1]["body"]
         assert "Nombre: Ana García" in body["description"]
         assert "Telefono: 34600000001" in body["description"]
         assert "Estado: confirmada" in body["description"]
+
+    def test_crear_cita_title_format(self, cal_with_service):
+        cal, svc = cal_with_service
+        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["corte"])
+        body = svc.events.return_value.insert.call_args[1]["body"]
+        assert body["summary"] == "Corte de pelo - Ana"
+
+    def test_crear_cita_duration_matches_servicio(self, cal_with_service):
+        cal, svc = cal_with_service
+        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["mechas"])
+        body = svc.events.return_value.insert.call_args[1]["body"]
+        from datetime import datetime
+        start = datetime.fromisoformat(body["start"]["dateTime"])
+        end = datetime.fromisoformat(body["end"]["dateTime"])
+        assert end - start == timedelta(minutes=120)
+
+    def test_crear_cita_description_contains_servicio_line(self, cal_with_service):
+        cal, svc = cal_with_service
+        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["mechas"])
+        body = svc.events.return_value.insert.call_args[1]["body"]
+        assert "Servicio: mechas" in body["description"]
+
+    def test_get_slots_disponibles_passes_duracion_min(self, cal_with_service):
+        cal, svc = cal_with_service
+        result = cal.get_slots_disponibles(date(2026, 3, 23), duracion_min=120)
+        assert isinstance(result, list)
+
+    def test_slot_sigue_libre_passes_duracion_min(self, cal_with_service):
+        cal, svc = cal_with_service
+        # With no blocking events, 10:00 should be free for any duration on a Monday
+        result = cal.slot_sigue_libre(date(2026, 3, 23), "10:00", duracion_min=120)
+        assert isinstance(result, bool)
 
 
 # ── reservar_cita (atomic) ─────────────────────────────────────────────────────
@@ -200,7 +273,7 @@ class TestReservarCita:
              patch.object(cal, "tiene_cita_ese_dia", return_value=False), \
              patch.object(cal, "crear_cita", return_value="new_evt"):
             event_id, reason = cal.reservar_cita(
-                date(2026, 3, 23), "10:00", "Ana", "34600000001"
+                date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )
         assert event_id == "new_evt"
         assert reason is None
@@ -209,7 +282,7 @@ class TestReservarCita:
         cal, svc = cal_with_service
         with patch.object(cal, "slot_sigue_libre", return_value=False):
             event_id, reason = cal.reservar_cita(
-                date(2026, 3, 23), "10:00", "Ana", "34600000001"
+                date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )
         assert event_id is None
         assert reason == "slot_taken"
@@ -219,7 +292,7 @@ class TestReservarCita:
         with patch.object(cal, "slot_sigue_libre", return_value=True), \
              patch.object(cal, "tiene_cita_ese_dia", return_value=True):
             event_id, reason = cal.reservar_cita(
-                date(2026, 3, 23), "10:00", "Ana", "34600000001"
+                date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )
         assert event_id is None
         assert reason == "double_booking"
@@ -230,7 +303,7 @@ class TestReservarCita:
              patch.object(cal, "tiene_cita_ese_dia", return_value=False), \
              patch.object(cal, "crear_cita", return_value=None):
             event_id, reason = cal.reservar_cita(
-                date(2026, 3, 23), "10:00", "Ana", "34600000001"
+                date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )
         assert event_id is None
         assert reason == "error"
@@ -248,14 +321,14 @@ class TestReservarCita:
         call_count = [0]
         lock = threading.Lock()
 
-        def fake_slot_libre(date_, hora_):
+        def fake_slot_libre(date_, hora_, **kwargs):
             with lock:
                 call_count[0] += 1
                 if len(booked) == 0:
                     return True
                 return False
 
-        def fake_crear(date_, hora_, nombre, tel):
+        def fake_crear(date_, hora_, nombre, tel, **kwargs):
             booked.append("done")
             return "evt_concurrent"
 
@@ -265,7 +338,7 @@ class TestReservarCita:
             with patch.object(cal_module, "slot_sigue_libre", side_effect=fake_slot_libre), \
                  patch.object(cal_module, "tiene_cita_ese_dia", return_value=False), \
                  patch.object(cal_module, "crear_cita", side_effect=fake_crear):
-                result = cal_module.reservar_cita(d, hora, "Test", "34600000001")
+                result = cal_module.reservar_cita(d, hora, "Test", "34600000001", SERVICIOS["corte"])
                 results.append(result)
 
         t1 = threading.Thread(target=worker)
@@ -285,11 +358,17 @@ class TestReservarCita:
 class TestCancelarCita:
     def test_deletes_event(self, cal_with_service):
         cal, svc = cal_with_service
+        svc.events.return_value.get.return_value.execute.return_value = {
+            'start': {'dateTime': '2025-05-05T10:00:00+02:00'}
+        }
         assert cal.cancelar_cita("evt1") is True
         svc.events.return_value.delete.return_value.execute.assert_called_once()
 
     def test_api_error_returns_false(self, cal_with_service):
         cal, svc = cal_with_service
+        svc.events.return_value.get.return_value.execute.return_value = {
+            'start': {'dateTime': '2025-05-05T10:00:00+02:00'}
+        }
         svc.events.return_value.delete.return_value.execute.side_effect = Exception("err")
         assert cal.cancelar_cita("evt1") is False
 
@@ -330,6 +409,7 @@ class TestGetEventosManualesSinConfirmar:
         result = cal.get_eventos_manuales_sin_confirmar()
         assert len(result) == 1
         assert result[0]["telefono"] == "34600000002"
+        assert 'service_key' in result[0]
 
     def test_skips_already_confirmed(self, cal_with_service):
         cal, svc = cal_with_service
@@ -363,6 +443,48 @@ class TestGetEventosManualesSinConfirmar:
                                    now + timedelta(days=1), now + timedelta(days=1, minutes=30))]
         }
         assert cal.get_eventos_manuales_sin_confirmar() == []
+
+    def test_service_key_value_mechas(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        desc = "Nombre: Luis\nTelefono: 34600000002\nEstado: pendiente"
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt1", "Mechas - Luis", desc,
+                now + timedelta(days=1), now + timedelta(days=1, minutes=120)
+            )]
+        }
+        result = cal.get_eventos_manuales_sin_confirmar()
+        assert len(result) == 1
+        assert result[0]['service_key'] == "mechas"
+
+    def test_service_key_value_corte(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        desc = "Nombre: Pedro\nTelefono: 34600000003\nEstado: pendiente"
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt2", "Corte de pelo - Pedro", desc,
+                now + timedelta(days=1), now + timedelta(days=1, minutes=30)
+            )]
+        }
+        result = cal.get_eventos_manuales_sin_confirmar()
+        assert len(result) == 1
+        assert result[0]['service_key'] == "corte"
+
+    def test_service_key_none_for_unknown_title(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        desc = "Nombre: Luis\nTelefono: 34600000002\nEstado: pendiente"
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt1", "Tinte - Luis", desc,
+                now + timedelta(days=1), now + timedelta(days=1, minutes=60)
+            )]
+        }
+        result = cal.get_eventos_manuales_sin_confirmar()
+        assert len(result) == 1
+        assert result[0]['service_key'] is None
 
 
 # ── get_citas_para_recordatorio ────────────────────────────────────────────────
@@ -421,3 +543,73 @@ class TestMarcarRecordatorioEnviado:
         cal, svc = cal_with_service
         svc.events.return_value.get.return_value.execute.side_effect = Exception("err")
         assert cal.marcar_recordatorio_enviado("evt1") is False
+
+
+# ── marcar_manual_confirmado ───────────────────────────────────────────────────
+
+class TestMarcarManualConfirmado:
+    def test_sets_estado_confirmada_and_recordatorio_no(self, cal_with_service):
+        cal, svc = cal_with_service
+        svc.events.return_value.get.return_value.execute.return_value = {
+            "id": "evt1",
+            "description": "Nombre: Luis\nTelefono: 34600000002\nEstado: pendiente\nRecordatorio: no",
+        }
+        result = cal.marcar_manual_confirmado("evt1")
+        assert result is True
+        updated_body = svc.events.return_value.update.call_args[1]["body"]
+        assert "Estado: confirmada" in updated_body["description"]
+        assert "Recordatorio: no" in updated_body["description"]
+
+    def test_api_error_returns_false(self, cal_with_service):
+        cal, svc = cal_with_service
+        svc.events.return_value.get.return_value.execute.side_effect = Exception("API error")
+        assert cal.marcar_manual_confirmado("evt1") is False
+
+
+# ── get_citas_futuras ──────────────────────────────────────────────────────────
+
+class TestGetCitasFuturas:
+    def test_returns_future_citas_for_phone(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        desc = "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no"
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt1", "Corte de pelo - Ana", desc,
+                now + timedelta(days=1), now + timedelta(days=1, minutes=30)
+            )]
+        }
+        result = cal.get_citas_futuras("34600000001")
+        assert len(result) == 1
+        assert result[0]["id"] == "evt1"
+
+    def test_ignores_other_phones(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        desc = "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no"
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt1", "Corte de pelo - Ana", desc,
+                now + timedelta(days=1), now + timedelta(days=1, minutes=30)
+            )]
+        }
+        result = cal.get_citas_futuras("34600000999")
+        assert result == []
+
+    def test_ignores_cfg_events(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "cfg1", "[CFG] CERRADO", "",
+                now + timedelta(days=1), now + timedelta(days=1, hours=8)
+            )]
+        }
+        result = cal.get_citas_futuras("34600000001")
+        assert result == []
+
+    def test_api_error_returns_empty_list(self, cal_with_service):
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.side_effect = Exception("API error")
+        result = cal.get_citas_futuras("34600000001")
+        assert result == []

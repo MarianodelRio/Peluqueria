@@ -16,33 +16,33 @@ TZ = pytz.timezone(TIMEZONE)
 OVERLAP_TOLERANCE_SECONDS = 60  # ±1 minute tolerance
 
 
-def generate_slots(start_str: str, end_str: str) -> List[str]:
+def generate_slots(start_str: str, end_str: str, duracion_min: int = 30) -> List[str]:
     """
-    Generate 30-min slots between start and end.
+    Generate time slots of duracion_min length between start and end.
     start_str, end_str: 'HH:MM' format.
-    Returns list of 'HH:MM' strings. Last slot starts at end - 30min.
+    Returns list of 'HH:MM' strings. Last slot starts at end - duracion_min.
     """
     slots = []
     start_h, start_m = map(int, start_str.split(':'))
     end_h, end_m = map(int, end_str.split(':'))
     current = start_h * 60 + start_m
     end = end_h * 60 + end_m
-    while current + CITA_DURACION_MIN <= end:
+    while current + duracion_min <= end:
         h = current // 60
         m = current % 60
         slots.append(f"{h:02d}:{m:02d}")
-        current += CITA_DURACION_MIN
+        current += duracion_min
     return slots
 
 
-def get_base_slots_for_day(d: date) -> List[str]:
+def get_base_slots_for_day(d: date, duracion_min: int = 30) -> List[str]:
     """Returns base slots for a given date based on HORARIO_BASE."""
     weekday = d.weekday()  # 0=Monday, 6=Sunday
     if weekday not in HORARIO_BASE:
         return []
     slots = []
     for start_str, end_str in HORARIO_BASE[weekday]:
-        slots.extend(generate_slots(start_str, end_str))
+        slots.extend(generate_slots(start_str, end_str, duracion_min))
     return slots
 
 
@@ -66,17 +66,19 @@ def events_overlap_slot(event_start: datetime, event_end: datetime,
     return effective_event_start < slot_end and effective_event_end > slot_start
 
 
-def filter_available_slots(all_slots: List[str], d: date, events: List[dict]) -> List[str]:
+def filter_available_slots(all_slots: List[str], d: date, events: List[dict],
+                           duracion_min: int = 30) -> List[str]:
     """
     Given all possible slots and a list of Google Calendar events for that day,
     return only the free slots.
 
     events: list of dicts with keys 'start', 'end' as aware datetimes.
+    duracion_min: length of the appointment window to check for conflicts.
     """
     available = []
     for slot in all_slots:
         slot_start = slot_to_datetime(d, slot)
-        slot_end = slot_start + timedelta(minutes=CITA_DURACION_MIN)
+        slot_end = slot_start + timedelta(minutes=duracion_min)
         occupied = False
         for event in events:
             ev_start = event['start']

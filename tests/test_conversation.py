@@ -67,19 +67,18 @@ class TestMenuState:
         send(interactive_id="back_to_menu")
         assert conv._states.get(PHONE) is None  # cleared by _to_menu
 
-    def test_menu_book_transitions_to_select_day(self, mock_wa, mock_cal):
+    def test_menu_book_transitions_to_select_service(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
-        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
-        with patch("app.handlers.conversation.get_next_days",
-                   return_value=[date(2026, 3, 23), date(2026, 3, 24)]):
-            send(interactive_id="menu_book")
+        send(interactive_id="menu_book")
         state = conv._get(PHONE)
-        assert state.step == conv.BOOK_SELECT_DAY
+        assert state.step == conv.BOOK_SELECT_SERVICE
 
-    def test_menu_book_no_days_shows_message(self, mock_wa, mock_cal):
-        with patch("app.handlers.conversation.get_next_days", return_value=[]):
-            send(interactive_id="menu_book")
-        mock_wa.send_text_message.assert_called()
+    def test_menu_book_sends_service_select(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        send(interactive_id="menu_book")
+        mock_wa.send_interactive.assert_called()
+        state = conv._get(PHONE)
+        assert state.step == conv.BOOK_SELECT_SERVICE
 
     def test_menu_view_transitions_to_view(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -102,14 +101,57 @@ class TestMenuState:
         assert state.step == conv.CANCEL_SELECT
 
 
+# ── BOOK_SELECT_SERVICE ────────────────────────────────────────────────────────
+
+class TestBookSelectService:
+    def setup_method(self):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_SERVICE
+
+    def test_service_corte_transitions_to_select_day(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
+        with patch("app.handlers.conversation.get_next_days",
+                   return_value=[date(2026, 3, 23), date(2026, 3, 24)]):
+            send(interactive_id="service_corte")
+        state = conv._get(PHONE)
+        assert state.step == conv.BOOK_SELECT_DAY
+        assert state.selected_service == SERVICIOS["corte"]
+
+    def test_service_mechas_has_120_min_duration(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        mock_cal.get_slots_disponibles.return_value = ["10:00"]
+        with patch("app.handlers.conversation.get_next_days",
+                   return_value=[date(2026, 3, 23)]):
+            send(interactive_id="service_mechas")
+        state = conv._get(PHONE)
+        assert state.selected_service['duracion_min'] == 120
+
+    def test_invalid_button_resets_menu(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        send(interactive_id="service_unknown")
+        assert conv._states.get(PHONE) is None
+
+    def test_no_days_available_shows_message(self, mock_wa, mock_cal):
+        mock_cal.get_slots_disponibles.return_value = []
+        with patch("app.handlers.conversation.get_next_days",
+                   return_value=[date(2026, 3, 23)]):
+            send(interactive_id="service_corte")
+        mock_wa.send_text_message.assert_called()
+
+
 # ── BOOK_SELECT_DAY ────────────────────────────────────────────────────────────
 
 class TestBookSelectDay:
     def setup_state(self):
         import app.handlers.conversation as conv
+        from app.config import SERVICIOS
         state = conv._get(PHONE)
         state.step = conv.BOOK_SELECT_DAY
         state.available_days = [date(2026, 3, 23), date(2026, 3, 24)]
+        state.selected_service = SERVICIOS["corte"]
         return state
 
     def test_valid_day_both_periods_goes_to_period_select(self, mock_wa, mock_cal):
@@ -152,6 +194,33 @@ class TestBookSelectDay:
         mock_cal.get_slots_disponibles.return_value = []
         send(interactive_id="day_2026-03-23")
         mock_wa.send_text_message.assert_called()
+
+    def test_get_slots_called_with_service_duracion_min(self, mock_wa, mock_cal):
+        """get_slots_disponibles is called with the service's duracion_min (30 for corte)."""
+        from app.config import SERVICIOS
+        self.setup_state()
+        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
+        send(interactive_id="day_2026-03-23")
+        call_kwargs = mock_cal.get_slots_disponibles.call_args
+        assert call_kwargs is not None
+        # duracion_min may be positional or keyword
+        args, kwargs = call_kwargs
+        duracion = kwargs.get('duracion_min', args[1] if len(args) > 1 else None)
+        assert duracion == SERVICIOS["corte"]["duracion_min"]
+
+    def test_mechas_service_uses_120_min_duration(self, mock_wa, mock_cal):
+        """get_slots_disponibles is called with duracion_min=120 for mechas service."""
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        state = self.setup_state()
+        state.selected_service = SERVICIOS["mechas"]
+        mock_cal.get_slots_disponibles.return_value = ["10:00"]
+        send(interactive_id="day_2026-03-23")
+        call_kwargs = mock_cal.get_slots_disponibles.call_args
+        assert call_kwargs is not None
+        args, kwargs = call_kwargs
+        duracion = kwargs.get('duracion_min', args[1] if len(args) > 1 else None)
+        assert duracion == 120
 
 
 # ── BOOK_SELECT_PERIOD ──────────────────────────────────────────────────────────
@@ -235,19 +304,22 @@ class TestBookSelectHour:
 class TestBookEnterName:
     def setup_state(self):
         import app.handlers.conversation as conv
+        from app.config import SERVICIOS
         state = conv._get(PHONE)
         state.step = conv.BOOK_ENTER_NAME
         state.selected_date = date(2026, 3, 23)
         state.selected_slot = "10:00"
+        state.selected_service = SERVICIOS["corte"]
+        state.available_days = [date(2026, 3, 23)]
         return state
 
-    def test_valid_name_goes_to_confirm(self, mock_wa, mock_cal):
+    def test_valid_name_books_directly(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         self.setup_state()
+        mock_cal.reservar_cita.return_value = ("evt_new", None)
         send(text="Ana García")
-        state = conv._get(PHONE)
-        assert state.step == conv.BOOK_CONFIRM
-        assert state.nombre == "Ana García"
+        assert conv._states.get(PHONE) is None
+        mock_wa.send_text_message.assert_called()
 
     def test_short_name_asks_again(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -264,15 +336,17 @@ class TestBookEnterName:
         assert conv._states.get(PHONE) is None
 
 
-# ── BOOK_CONFIRM ───────────────────────────────────────────────────────────────
+# ── BOOK_ENTER_NAME (booking outcomes) ────────────────────────────────────────
 
 class TestBookConfirm:
     def setup_state(self):
         import app.handlers.conversation as conv
+        from app.config import SERVICIOS
         state = conv._get(PHONE)
-        state.step = conv.BOOK_CONFIRM
+        state.step = conv.BOOK_ENTER_NAME
         state.selected_date = date(2026, 3, 23)
         state.selected_slot = "10:00"
+        state.selected_service = SERVICIOS["corte"]
         state.nombre = "Ana"
         state.available_days = [date(2026, 3, 23)]
         return state
@@ -281,7 +355,7 @@ class TestBookConfirm:
         import app.handlers.conversation as conv
         self.setup_state()
         mock_cal.reservar_cita.return_value = ("evt_new", None)
-        send(interactive_id="book_confirm")
+        send(text="Ana")
         assert conv._states.get(PHONE) is None
         mock_wa.send_text_message.assert_called()
 
@@ -290,7 +364,7 @@ class TestBookConfirm:
         self.setup_state()
         mock_cal.reservar_cita.return_value = (None, "slot_taken")
         mock_cal.get_slots_disponibles.return_value = ["10:30", "11:00"]
-        send(interactive_id="book_confirm")
+        send(text="Ana")
         state = conv._get(PHONE)
         assert state.step == conv.BOOK_SELECT_HOUR
 
@@ -299,14 +373,14 @@ class TestBookConfirm:
         self.setup_state()
         mock_cal.reservar_cita.return_value = (None, "slot_taken")
         mock_cal.get_slots_disponibles.return_value = []
-        send(interactive_id="book_confirm")
+        send(text="Ana")
         assert conv._get(PHONE).step == conv.BOOK_SELECT_DAY
 
     def test_confirm_double_booking_shows_message(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         self.setup_state()
         mock_cal.reservar_cita.return_value = (None, "double_booking")
-        send(interactive_id="book_confirm")
+        send(text="Ana")
         assert conv._states.get(PHONE) is None   # _to_menu clears it
         mock_wa.send_text_message.assert_called()
 
@@ -314,23 +388,8 @@ class TestBookConfirm:
         import app.handlers.conversation as conv
         self.setup_state()
         mock_cal.reservar_cita.return_value = (None, "error")
-        send(interactive_id="book_confirm")
+        send(text="Ana")
         mock_wa.send_text_message.assert_called()
-
-    def test_change_hour_refreshes_slots(self, mock_wa, mock_cal):
-        import app.handlers.conversation as conv
-        self.setup_state()
-        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30", "16:00"]
-        send(interactive_id="book_change_hour")
-        state = conv._get(PHONE)
-        # Both periods available → period select
-        assert state.step in (conv.BOOK_SELECT_PERIOD, conv.BOOK_SELECT_HOUR)
-
-    def test_unknown_id_resets_menu(self, mock_wa, mock_cal):
-        self.setup_state()
-        send(interactive_id="some_random_thing")
-        import app.handlers.conversation as conv
-        assert conv._states.get(PHONE) is None
 
 
 # ── CANCEL flow ────────────────────────────────────────────────────────────────
@@ -343,7 +402,7 @@ class TestCancelFlow:
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
         state.step = conv.CANCEL_SELECT
-        mock_cal.get_citas_futuras.return_value = [self.make_cita("evt1")]
+        state.cancel_citas = [self.make_cita("evt1")]
         send(interactive_id="cancel_appt_evt1")
         state = conv._get(PHONE)
         assert state.step == conv.CANCEL_CONFIRM
@@ -353,9 +412,10 @@ class TestCancelFlow:
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
         state.step = conv.CANCEL_SELECT
-        mock_cal.get_citas_futuras.return_value = []
+        state.cancel_citas = []
         send(interactive_id="cancel_appt_evt1")
         assert conv._states.get(PHONE) is None
+        mock_cal.get_citas_futuras.assert_not_called()
 
     def test_cancel_confirm_success(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -398,9 +458,19 @@ class TestCancelFlow:
 
 class TestReminderResponses:
     def test_reminder_confirm_confirms_appointment(self, mock_wa, mock_cal):
+        mock_cal.get_citas_futuras.return_value = [
+            {"id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
+        ]
         send(interactive_id="reminder_confirm_evt1")
         mock_cal.confirmar_cita.assert_called_once_with("evt1")
         mock_wa.send_text_message.assert_called()
+
+    def test_reminder_confirm_event_not_found_resets_menu(self, mock_wa, mock_cal):
+        mock_cal.get_citas_futuras.return_value = []
+        send(interactive_id="reminder_confirm_evt_missing")
+        import app.handlers.conversation as conv
+        assert conv._states.get(PHONE) is None
+        mock_cal.confirmar_cita.assert_not_called()
 
     def test_reminder_cancel_shows_cancel_confirm(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -423,6 +493,9 @@ class TestReminderResponses:
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
         state.step = conv.BOOK_ENTER_NAME   # deep in booking flow
+        mock_cal.get_citas_futuras.return_value = [
+            {"id": "evt_xyz", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
+        ]
         send(interactive_id="reminder_confirm_evt_xyz")
         mock_cal.confirmar_cita.assert_called_once_with("evt_xyz")
 
@@ -435,13 +508,6 @@ class TestTextInputRouting:
         state = conv._get(PHONE)
         state.step = conv.BOOK_SELECT_DAY
         send(text="quiero el martes")
-        assert conv._states.get(PHONE) is None
-
-    def test_text_in_book_confirm_resets_to_menu(self, mock_wa, mock_cal):
-        import app.handlers.conversation as conv
-        state = conv._get(PHONE)
-        state.step = conv.BOOK_CONFIRM
-        send(text="en realidad no")
         assert conv._states.get(PHONE) is None
 
     def test_unknown_type_triggers_menu(self, mock_wa, mock_cal):

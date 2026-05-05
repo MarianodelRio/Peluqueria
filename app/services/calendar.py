@@ -14,11 +14,12 @@ import pytz
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
-from app.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_ID, TIMEZONE, CITA_DURACION_MIN, GOOGLE_API_TIMEOUT_SEC, SLOT_CACHE_TTL_SEC
+from app.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_ID, TIMEZONE, CITA_DURACION_MIN, GOOGLE_API_TIMEOUT_SEC, SLOT_CACHE_TTL_SEC, SERVICIOS
 from app.utils import metrics
+from app.utils.security import mask_phone
 from app.utils.parser import (
     parse_nombre, parse_tel, parse_estado, parse_reminder,
-    parse_cfg, set_field, remove_field
+    parse_cfg, set_field, remove_field, parse_servicio_from_title
 )
 from app.utils.slots import (
     get_base_slots_for_day, generate_slots, filter_available_slots, slot_to_datetime,
@@ -98,7 +99,7 @@ def _get_day_events(service, d: date) -> List[dict]:
     return events
 
 
-def _get_slots_disponibles_uncached(d: date) -> List[str]:
+def _get_slots_disponibles_uncached(d: date, duracion_min: int = 30) -> List[str]:
     """Internal: fetch slots from Google Calendar without cache."""
     service = _get_service()
     events = _get_day_events(service, d)
@@ -124,14 +125,14 @@ def _get_slots_disponibles_uncached(d: date) -> List[str]:
         return []
 
     base_slots = (
-        generate_slots(special_schedule['start'], special_schedule['end'])
-        if special_schedule else get_base_slots_for_day(d)
+        generate_slots(special_schedule['start'], special_schedule['end'], duracion_min)
+        if special_schedule else get_base_slots_for_day(d, duracion_min)
     )
 
     if not base_slots:
         return []
 
-    available = filter_available_slots(base_slots, d, blocking_events)
+    available = filter_available_slots(base_slots, d, blocking_events, duracion_min)
 
     if d == datetime.now(TZ).date():
         now_time = datetime.now(TZ).strftime("%H:%M")
@@ -159,22 +160,27 @@ _slot_cache: dict[str, tuple[list, float]] = {}
 _slot_cache_lock = threading.Lock()
 
 
-def _slot_cache_key(d: date) -> str:
-    return d.isoformat()
+def _slot_cache_key(d: date, duracion_min: int = 30) -> str:
+    return f"{d.isoformat()}_{duracion_min}"
 
 
 def _invalidate_slot_cache(d: date) -> None:
+    """Remove all cache entries for a given date (all durations)."""
+    prefix = d.isoformat()
     with _slot_cache_lock:
-        _slot_cache.pop(_slot_cache_key(d), None)
+        keys_to_delete = [k for k in _slot_cache if k.startswith(prefix)]
+        for k in keys_to_delete:
+            _slot_cache.pop(k, None)
 
 
-def get_slots_disponibles(d: date, bypass_cache: bool = False) -> List[str]:
+def get_slots_disponibles(d: date, bypass_cache: bool = False, duracion_min: int = 30) -> List[str]:
     """
     Returns available slots for a given date.
     bypass_cache=True skips cache and always fetches live data (used during booking).
+    duracion_min: service duration in minutes (affects which slots fit in the schedule).
     """
     if not bypass_cache:
-        key = _slot_cache_key(d)
+        key = _slot_cache_key(d, duracion_min)
         now_ts = time.time()
         with _slot_cache_lock:
             if key in _slot_cache:
@@ -183,7 +189,7 @@ def get_slots_disponibles(d: date, bypass_cache: bool = False) -> List[str]:
                     return list(result)
 
     try:
-        result = _get_slots_disponibles_uncached(d)
+        result = _get_slots_disponibles_uncached(d, duracion_min=duracion_min)
     except Exception as e:
         logger.error(f"[CAL] Error fetching slots for {d}: {e}", exc_info=True)
         metrics.inc('calendar_errors')
@@ -191,21 +197,21 @@ def get_slots_disponibles(d: date, bypass_cache: bool = False) -> List[str]:
 
     if not bypass_cache:
         with _slot_cache_lock:
-            _slot_cache[_slot_cache_key(d)] = (list(result), time.time())
+            _slot_cache[_slot_cache_key(d, duracion_min)] = (list(result), time.time())
 
     return result
 
 
-def slot_sigue_libre(d: date, hora: str) -> bool:
+def slot_sigue_libre(d: date, hora: str, duracion_min: int = 30) -> bool:
     """
     Re-check if a specific slot is still available.
     Always bypasses cache — called inside the booking lock for anti-race guarantee.
     """
-    available = get_slots_disponibles(d, bypass_cache=True)
+    available = get_slots_disponibles(d, bypass_cache=True, duracion_min=duracion_min)
     return hora in available
 
 
-def reservar_cita(d: date, hora: str, nombre: str, telefono: str) -> tuple:
+def reservar_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict) -> tuple:
     """
     Atomic booking: acquire per-slot lock → re-validate → create.
     Prevents race conditions between concurrent booking attempts.
@@ -218,11 +224,11 @@ def reservar_cita(d: date, hora: str, nombre: str, telefono: str) -> tuple:
     """
     lock = _get_slot_lock(d, hora)
     with lock:
-        if not slot_sigue_libre(d, hora):
+        if not slot_sigue_libre(d, hora, duracion_min=servicio['duracion_min']):
             return None, 'slot_taken'
         if tiene_cita_ese_dia(telefono, d):
             return None, 'double_booking'
-        event_id = crear_cita(d, hora, nombre, telefono)
+        event_id = crear_cita(d, hora, nombre, telefono, servicio=servicio)
         if not event_id:
             return None, 'error'
         return event_id, None
@@ -242,24 +248,27 @@ def tiene_cita_ese_dia(telefono: str, d: date) -> bool:
     return False
 
 
-def crear_cita(d: date, hora: str, nombre: str, telefono: str) -> Optional[str]:
+def crear_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict) -> Optional[str]:
     """
     Create appointment event in Google Calendar.
     Returns event ID on success, None on failure.
     """
     service = _get_service()
     start_dt = slot_to_datetime(d, hora)
-    end_dt = start_dt + timedelta(minutes=CITA_DURACION_MIN)
+    end_dt = start_dt + timedelta(minutes=servicio['duracion_min'])
+
+    key = next((k for k, v in SERVICIOS.items() if v is servicio), "desconocido")
 
     description = (
         f"Nombre: {nombre}\n"
         f"Telefono: {telefono}\n"
+        f"Servicio: {key}\n"
         f"Estado: confirmada\n"
         f"Recordatorio: no"
     )
 
     event = {
-        'summary': f"Cita - {nombre}",
+        'summary': f"{servicio['nombre']} - {nombre}",
         'description': description,
         'start': {'dateTime': start_dt.isoformat(), 'timeZone': TIMEZONE},
         'end': {'dateTime': end_dt.isoformat(), 'timeZone': TIMEZONE},
@@ -267,7 +276,7 @@ def crear_cita(d: date, hora: str, nombre: str, telefono: str) -> Optional[str]:
 
     try:
         created = service.events().insert(calendarId=GOOGLE_CALENDAR_ID, body=event).execute(num_retries=2)
-        logger.info(f"[CAL] Created appointment (confirmed): {nombre} {telefono} {d} {hora} event_id={created['id']}")
+        logger.info(f"[CAL] Created appointment (confirmed): {nombre} {mask_phone(telefono)} {d} {hora} event_id={created['id']}")
         _invalidate_slot_cache(d)
         metrics.inc('bookings_created')
         return created['id']
@@ -296,9 +305,22 @@ def cancelar_cita(event_id: str) -> bool:
     """Delete appointment event from Google Calendar."""
     service = _get_service()
     try:
+        # Fetch the event to get its date for cache invalidation
+        event = service.events().get(
+            calendarId=GOOGLE_CALENDAR_ID,
+            eventId=event_id
+        ).execute(num_retries=2)
+        start_str = event.get('start', {}).get('dateTime') or event.get('start', {}).get('date')
+        try:
+            event_date = datetime.fromisoformat(start_str).astimezone(TZ).date()
+        except Exception:
+            event_date = None
+
         service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id).execute(num_retries=2)
         logger.info(f"[CAL] Deleted appointment event_id={event_id}")
         metrics.inc('bookings_cancelled')
+        if event_date:
+            _invalidate_slot_cache(event_date)
         return True
     except Exception as e:
         logger.error(f"[CAL] Error deleting appointment {event_id}: {e}")
@@ -347,7 +369,8 @@ def get_eventos_manuales_sin_confirmar() -> List[dict]:
             continue
 
         start_dt = datetime.fromisoformat(start_raw['dateTime']).astimezone(TZ)
-        nombre = parse_nombre(desc) or title or "Cliente"
+        service_key, nombre_from_title = parse_servicio_from_title(title)
+        nombre = parse_nombre(desc) or nombre_from_title or "Cliente"
         manual_events.append({
             'id': item['id'],
             'title': title,
@@ -355,6 +378,7 @@ def get_eventos_manuales_sin_confirmar() -> List[dict]:
             'description': desc,
             'telefono': tel,
             'start': start_dt,
+            'service_key': service_key,
         })
 
     return manual_events
@@ -499,7 +523,7 @@ def get_citas_futuras(telefono: str) -> list:
 
         return citas
     except Exception as e:
-        logger.error(f"[CAL] Error fetching citas for {telefono}: {e}", exc_info=True)
+        logger.error(f"[CAL] Error fetching citas for {mask_phone(telefono)}: {e}", exc_info=True)
         metrics.inc('calendar_errors')
         return []
 
