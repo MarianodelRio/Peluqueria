@@ -172,7 +172,7 @@ class TestPhoneNormalisationInParseTel:
 
 
 class TestPhoneNormalisationInCalendar:
-    """Ensure tiene_cita_ese_dia and get_citas_futuras find manual appointments
+    """Ensure get_citas_futuras finds manual appointments
     even if the barber stored the phone as '+34...' instead of '34...'."""
 
     def _make_service(self, desc):
@@ -188,17 +188,6 @@ class TestPhoneNormalisationInCalendar:
         }
         return svc
 
-    def test_tiene_cita_matches_plus_prefix(self):
-        import app.services.calendar as cal
-        if hasattr(cal._thread_local, "service"):
-            del cal._thread_local.service
-        # Manual appointment stored with +34 prefix
-        svc = self._make_service("Telefono: +34600000001\nEstado: confirmada")
-        with patch("app.services.calendar._get_service", return_value=svc):
-            # WhatsApp phone arrives without '+' — must still detect duplicate
-            result = cal.tiene_cita_ese_dia("34600000001", date(2026, 3, 23))
-        assert result is True
-
     def test_get_citas_futuras_finds_plus_prefix(self):
         import app.services.calendar as cal
         if hasattr(cal._thread_local, "service"):
@@ -207,16 +196,6 @@ class TestPhoneNormalisationInCalendar:
         with patch("app.services.calendar._get_service", return_value=svc):
             citas = cal.get_citas_futuras("34600000001")
         assert len(citas) == 1
-
-    def test_tiene_cita_matches_no_country_code(self):
-        """Barber writes '600000001' (no '34') → normalised → matches WhatsApp '34600000001'."""
-        import app.services.calendar as cal
-        if hasattr(cal._thread_local, "service"):
-            del cal._thread_local.service
-        svc = self._make_service("Telefono: 600000001\nEstado: confirmada")
-        with patch("app.services.calendar._get_service", return_value=svc):
-            result = cal.tiene_cita_ese_dia("34600000001", date(2026, 3, 23))
-        assert result is True
 
     def test_get_citas_futuras_finds_no_country_code(self):
         import app.services.calendar as cal

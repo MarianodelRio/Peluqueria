@@ -30,7 +30,6 @@ WhatsApp booking bot for a barber shop:
 
 - Google Calendar is the persistence layer — there is no separate database.
 - Conversation state is in-memory (intentionally ephemeral, expires in 30 min).
-- One appointment per client per day (enforced in `tiene_cita_ese_dia`).
 - Slot duration is fixed at 30 min (`CITA_DURACION_MIN`).
 - All configuration overrides go through `[CFG]` events in Google Calendar.
 - WhatsApp message types: interactive lists for multi-choice, buttons for binary choices, text for prompts.

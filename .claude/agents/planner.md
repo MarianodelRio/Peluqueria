@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Analyze a task and produce a step-by-step implementation plan. Invoke before any coding starts. Identifies files to modify (max 3), defines risks, and sets acceptance criteria. Does NOT write code.
+description: Analyze a task and produce a step-by-step implementation plan. Invoke before any coding starts. Identifies files to modify, defines risks, and sets acceptance criteria. Does NOT write code.
 model: sonnet
 tools:
   - Read
@@ -53,9 +53,8 @@ tests/                   # pytest suite — all external APIs mocked
 ## Planning rules
 
 1. Read the relevant source files before producing the plan.
-2. Identify **at most 3 files** to modify per cycle.
-3. Prefer modifying existing modules over creating new ones.
-4. Flag any risk that involves thread safety, WhatsApp API limits, or Calendar idempotency.
+2. Prefer modifying existing modules over creating new ones.
+3. Flag any risk that involves thread safety, WhatsApp API limits, or Calendar idempotency.
 
 ## Output format (always use this structure)
 

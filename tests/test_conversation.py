@@ -393,14 +393,6 @@ class TestBookConfirm:
         send(text="Ana")
         assert conv._get(PHONE).step == conv.BOOK_SELECT_DAY
 
-    def test_confirm_double_booking_shows_message(self, mock_wa, mock_cal):
-        import app.handlers.conversation as conv
-        self.setup_state()
-        mock_cal.reservar_cita.return_value = (None, "double_booking")
-        send(text="Ana")
-        assert conv._states.get(PHONE) is None   # _to_menu clears it
-        mock_wa.send_text_message.assert_called()
-
     def test_confirm_api_error_shows_message(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         self.setup_state()

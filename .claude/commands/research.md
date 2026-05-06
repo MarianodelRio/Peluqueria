@@ -81,7 +81,7 @@ Produce this document only when the user says something like "write the RDS", "c
 - [ ] No regression in existing conversation flows
 
 ## Scope Estimate
-- Files to modify: [list, max 3 for one cycle]
+- Files to modify: [list]
 - Complexity: [Low / Medium / High]
 - Fits in one planner→coder→reviewer cycle: [Yes / No — if No, explain split]
 ```

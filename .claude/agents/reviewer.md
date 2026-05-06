@@ -34,7 +34,7 @@ You review implementations against their approved plans. **You never modify code
 - Any iteration over shared dicts must snapshot first: `snapshot = list(d.items())`.
 
 ### 4. Google Calendar operations
-- Booking must follow atomic pattern: `lock → slot_sigue_libre → tiene_cita_ese_dia → crear_cita`.
+- Booking must follow atomic pattern: `lock → slot_sigue_libre → crear_cita`.
 - After creating/deleting an event, `_invalidate_slot_cache(d)` must be called.
 - Description fields must use `parser.py` helpers (`set_field`, `remove_field`) — never f-string manipulation.
 - New events must have `Nombre:`, `Telefono:`, `Estado:`, `Recordatorio:` fields in description.

@@ -33,7 +33,7 @@ from app.utils.interactive import (
 )
 from app.utils.slots import get_next_days
 from app.utils.messages import (
-    msg_sin_slots, msg_doble_reserva, msg_slot_no_disponible,
+    msg_sin_slots, msg_slot_no_disponible,
     msg_cita_confirmada, msg_cancelacion_ok,
     msg_sin_citas, msg_error_creando_cita,
 )
@@ -433,11 +433,6 @@ def _handle_book_enter_name(phone: str, state: ConversationState, value: str):
             wa.send_text_message(phone, msg_sin_slots())
             state.step = BOOK_SELECT_DAY
             wa.send_interactive(phone, build_days_list(state.available_days))
-
-    elif reason == 'double_booking':
-        logger.info(f"[CONV] {phone} already has appointment on {d}")
-        wa.send_text_message(phone, msg_doble_reserva())
-        _to_menu(phone)
 
     elif reason == 'error':
         wa.send_text_message(phone, msg_error_creando_cita())

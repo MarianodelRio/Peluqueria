@@ -220,7 +220,6 @@ def reservar_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict
     Returns:
         (event_id, None)          — success
         (None, 'slot_taken')      — slot no longer available
-        (None, 'double_booking')  — client already has appointment that day
         (None, 'error')           — Calendar API failure
     """
     lock = _get_slot_lock(d, hora)
@@ -228,26 +227,10 @@ def reservar_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict
     with lock:
         if not slot_sigue_libre(d, hora, duracion_min=servicio['duracion_min'], presencia_cliente_min=presencia):
             return None, 'slot_taken'
-        if tiene_cita_ese_dia(telefono, d):
-            return None, 'double_booking'
         event_id = crear_cita(d, hora, nombre, telefono, servicio=servicio)
         if not event_id:
             return None, 'error'
         return event_id, None
-
-
-def tiene_cita_ese_dia(telefono: str, d: date) -> bool:
-    """
-    Check if phone number already has an appointment on given date.
-    Rule: max 1 appointment per day per client.
-    """
-    service = _get_service()
-    events = _get_day_events(service, d)
-    for ev in events:
-        tel = parse_tel(ev['description'])
-        if tel and tel == telefono:
-            return True
-    return False
 
 
 def crear_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict) -> Optional[str]:

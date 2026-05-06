@@ -229,34 +229,6 @@ class TestGetSlotsDisponibles:
         assert "18:00" not in slots
 
 
-# ── tiene_cita_ese_dia ─────────────────────────────────────────────────────────
-
-class TestTieneCitaEseDia:
-    def test_phone_with_appointment(self, cal_with_service):
-        cal, svc = cal_with_service
-        d = date(2026, 3, 23)
-        desc = "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no"
-        svc.events.return_value.list.return_value.execute.return_value = {
-            "items": [make_gc_event("evt1", "Cita - Ana", desc,
-                                   aware(2026, 3, 23, 10, 0), aware(2026, 3, 23, 10, 30))]
-        }
-        assert cal.tiene_cita_ese_dia("34600000001", d) is True
-
-    def test_phone_without_appointment(self, cal_with_service):
-        cal, svc = cal_with_service
-        assert cal.tiene_cita_ese_dia("34600000999", date(2026, 3, 23)) is False
-
-    def test_different_phone_no_match(self, cal_with_service):
-        cal, svc = cal_with_service
-        d = date(2026, 3, 23)
-        desc = "Telefono: 34600000001\nEstado: confirmada\nRecordatorio: no"
-        svc.events.return_value.list.return_value.execute.return_value = {
-            "items": [make_gc_event("evt1", "Cita", desc,
-                                   aware(2026, 3, 23, 10, 0), aware(2026, 3, 23, 10, 30))]
-        }
-        assert cal.tiene_cita_ese_dia("34600000999", d) is False
-
-
 # ── crear_cita ─────────────────────────────────────────────────────────────────
 
 class TestCrearCita:
@@ -319,7 +291,6 @@ class TestReservarCita:
     def test_success(self, cal_with_service):
         cal, svc = cal_with_service
         with patch.object(cal, "slot_sigue_libre", return_value=True), \
-             patch.object(cal, "tiene_cita_ese_dia", return_value=False), \
              patch.object(cal, "crear_cita", return_value="new_evt"):
             event_id, reason = cal.reservar_cita(
                 date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
@@ -336,20 +307,9 @@ class TestReservarCita:
         assert event_id is None
         assert reason == "slot_taken"
 
-    def test_double_booking(self, cal_with_service):
-        cal, svc = cal_with_service
-        with patch.object(cal, "slot_sigue_libre", return_value=True), \
-             patch.object(cal, "tiene_cita_ese_dia", return_value=True):
-            event_id, reason = cal.reservar_cita(
-                date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
-            )
-        assert event_id is None
-        assert reason == "double_booking"
-
     def test_calendar_api_error(self, cal_with_service):
         cal, svc = cal_with_service
         with patch.object(cal, "slot_sigue_libre", return_value=True), \
-             patch.object(cal, "tiene_cita_ese_dia", return_value=False), \
              patch.object(cal, "crear_cita", return_value=None):
             event_id, reason = cal.reservar_cita(
                 date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
@@ -385,7 +345,6 @@ class TestReservarCita:
 
         def worker():
             with patch.object(cal_module, "slot_sigue_libre", side_effect=fake_slot_libre), \
-                 patch.object(cal_module, "tiene_cita_ese_dia", return_value=False), \
                  patch.object(cal_module, "crear_cita", side_effect=fake_crear):
                 result = cal_module.reservar_cita(d, hora, "Test", "34600000001", SERVICIOS["corte"])
                 results.append(result)

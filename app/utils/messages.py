@@ -27,10 +27,6 @@ def msg_sin_slots() -> str:
     return "No hay horarios disponibles para ese día. Prueba con otro día."
 
 
-def msg_doble_reserva() -> str:
-    return "Ya tienes una cita ese día 🙂\nSi necesitas cambiarla, cancélala primero desde el menú."
-
-
 def msg_slot_no_disponible() -> str:
     return "Ese horario ya no está disponible 😕"
 

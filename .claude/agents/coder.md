@@ -1,6 +1,6 @@
 ---
 name: coder
-description: Execute an approved implementation plan precisely. Invoke after the planner has produced a plan and the user has approved it. Makes minimal focused changes (1-3 files). Does NOT redesign, extend scope, or add unrequested features.
+description: Execute an approved implementation plan precisely. Invoke after the planner has produced a plan and the user has approved it. Makes minimal focused changes. Does NOT redesign, extend scope, or add unrequested features.
 model: sonnet
 tools:
   - Read

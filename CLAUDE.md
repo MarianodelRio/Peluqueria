@@ -69,7 +69,7 @@ Title-based config events — never treated as appointments:
 - Use `_go_to_hour_select()` (not `build_hours_list()` directly) — it applies period splitting to stay under the row limit.
 
 ### Booking atomic flow
-`lock → slot_sigue_libre(d, hora, duracion_min, presencia_cliente_min) → tiene_cita_ese_dia() → crear_cita(servicio) → _invalidate_slot_cache(d)`
+`lock → slot_sigue_libre(d, hora, duracion_min, presencia_cliente_min) → crear_cita(servicio) → _invalidate_slot_cache(d)`
 
 ### Services
 Three services are defined in `SERVICIOS` in `config.py`. Each affects slot generation and Calendar event duration:
@@ -138,7 +138,7 @@ One task = one clean cycle: **plan → implement → review**.
 Pass context between roles via explicit artifacts (plan text, file paths, implementation summary). Never skip phases or merge roles.
 
 ### Planner
-- Produces step-by-step plans, identifies files (max 3), defines acceptance criteria.
+- Produces step-by-step plans, identifies files to modify, defines acceptance criteria.
 - Does **NOT** write or modify code.
 - Use agent: `planner`
 

@@ -28,7 +28,7 @@ Ask the user: "Do you have a Research Design Solution (RDS) ready?"
 >
 > [PASTE RDS HERE]
 >
-> Produce an implementation plan following your output format. Read the relevant source files first. Identify at most 3 files to modify."
+> Produce an implementation plan following your output format. Read the relevant source files first."
 
 **Show the user the complete planner output.**
 
@@ -121,7 +121,6 @@ Before declaring the pipeline complete, confirm:
 - [ ] `pytest` ran without failures (coder reported this)
 - [ ] Reviewer found no CRITICAL or BUG issues (or they were resolved)
 - [ ] `/health` endpoint behavior is unchanged
-- [ ] At most 3 files were modified in this cycle
 - [ ] No new hardcoded secrets or credentials were introduced
 - [ ] All new Spanish text strings are in `messages.py` (not inlined)
 - [ ] Thread safety patterns followed (per-phone and per-slot locks where applicable)

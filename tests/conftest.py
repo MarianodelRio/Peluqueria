@@ -69,13 +69,11 @@ def mock_cal(monkeypatch):
          patch("app.services.calendar.get_citas_futuras", return_value=[]) as futuras, \
          patch("app.services.calendar.reservar_cita", return_value=("evt_new", None)) as reservar, \
          patch("app.services.calendar.cancelar_cita", return_value=True) as cancelar, \
-         patch("app.services.calendar.confirmar_cita", return_value=True) as confirmar, \
-         patch("app.services.calendar.tiene_cita_ese_dia", return_value=False) as tiene:
+         patch("app.services.calendar.confirmar_cita", return_value=True) as confirmar:
         yield {
             "slots": slots,
             "futuras": futuras,
             "reservar": reservar,
             "cancelar": cancelar,
             "confirmar": confirmar,
-            "tiene": tiene,
         }
