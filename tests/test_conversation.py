@@ -298,6 +298,17 @@ class TestBookSelectHour:
         import app.handlers.conversation as conv
         assert conv._states.get(PHONE) is None
 
+    def test_change_period_goes_to_period_select(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_HOUR
+        state.selected_date = date(2026, 3, 23)
+        state.all_day_slots = ["10:00", "10:30", "16:00", "16:30"]
+        state.available_slots = ["10:00", "10:30"]
+        state.available_days = [date(2026, 3, 23)]
+        send(interactive_id="change_period")
+        assert conv._get(PHONE).step == conv.BOOK_SELECT_PERIOD
+
 
 # ── BOOK_ENTER_NAME ────────────────────────────────────────────────────────────
 
@@ -319,7 +330,7 @@ class TestBookEnterName:
         mock_cal.reservar_cita.return_value = ("evt_new", None)
         send(text="Ana García")
         assert conv._states.get(PHONE) is None
-        mock_wa.send_text_message.assert_called()
+        mock_wa.send_interactive.assert_called()
 
     def test_short_name_asks_again(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -357,7 +368,7 @@ class TestBookConfirm:
         mock_cal.reservar_cita.return_value = ("evt_new", None)
         send(text="Ana")
         assert conv._states.get(PHONE) is None
-        mock_wa.send_text_message.assert_called()
+        mock_wa.send_interactive.assert_called()
 
     def test_confirm_slot_taken_shows_alternatives(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -398,15 +409,16 @@ class TestCancelFlow:
     def make_cita(self, event_id="evt1"):
         return {"id": event_id, "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
 
-    def test_cancel_select_valid_event_goes_to_confirm(self, mock_wa, mock_cal):
+    def test_cancel_select_valid_event_cancels_immediately(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
         state.step = conv.CANCEL_SELECT
         state.cancel_citas = [self.make_cita("evt1")]
+        mock_cal.cancelar_cita.return_value = True
         send(interactive_id="cancel_appt_evt1")
-        state = conv._get(PHONE)
-        assert state.step == conv.CANCEL_CONFIRM
-        assert state.cancel_event_id == "evt1"
+        mock_cal.cancelar_cita.assert_called_once_with("evt1")
+        assert conv._states.get(PHONE) is None
+        mock_wa.send_interactive.assert_called()
 
     def test_cancel_select_event_not_found_returns_menu(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -417,40 +429,13 @@ class TestCancelFlow:
         assert conv._states.get(PHONE) is None
         mock_cal.get_citas_futuras.assert_not_called()
 
-    def test_cancel_confirm_success(self, mock_wa, mock_cal):
-        import app.handlers.conversation as conv
-        state = conv._get(PHONE)
-        state.step = conv.CANCEL_CONFIRM
-        state.cancel_event_id = "evt1"
-        mock_cal.cancelar_cita.return_value = True
-        send(interactive_id="cancel_confirm_evt1")
-        mock_wa.send_text_message.assert_called()
-        assert conv._states.get(PHONE) is None
-
-    def test_cancel_confirm_wrong_event_id_resets_menu(self, mock_wa, mock_cal):
-        import app.handlers.conversation as conv
-        state = conv._get(PHONE)
-        state.step = conv.CANCEL_CONFIRM
-        state.cancel_event_id = "evt1"
-        # Confirm button has different event ID (tamper attempt)
-        send(interactive_id="cancel_confirm_evt_other")
-        assert conv._states.get(PHONE) is None
-
-    def test_cancel_keep_sends_abort_message(self, mock_wa, mock_cal):
-        import app.handlers.conversation as conv
-        state = conv._get(PHONE)
-        state.step = conv.CANCEL_CONFIRM
-        state.cancel_event_id = "evt1"
-        send(interactive_id="cancel_keep")
-        mock_wa.send_text_message.assert_called()
-
     def test_cancel_api_error_shows_error_message(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
-        state.step = conv.CANCEL_CONFIRM
-        state.cancel_event_id = "evt1"
+        state.step = conv.CANCEL_SELECT
+        state.cancel_citas = [self.make_cita("evt1")]
         mock_cal.cancelar_cita.return_value = False
-        send(interactive_id="cancel_confirm_evt1")
+        send(interactive_id="cancel_appt_evt1")
         mock_wa.send_text_message.assert_called()
 
 
@@ -472,15 +457,16 @@ class TestReminderResponses:
         assert conv._states.get(PHONE) is None
         mock_cal.confirmar_cita.assert_not_called()
 
-    def test_reminder_cancel_shows_cancel_confirm(self, mock_wa, mock_cal):
+    def test_reminder_cancel_cancels_directly(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         mock_cal.get_citas_futuras.return_value = [
             {"id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
         ]
+        mock_cal.cancelar_cita.return_value = True
         send(interactive_id="reminder_cancel_evt1")
-        state = conv._get(PHONE)
-        assert state.step == conv.CANCEL_CONFIRM
-        assert state.cancel_event_id == "evt1"
+        mock_cal.cancelar_cita.assert_called_once_with("evt1")
+        assert conv._states.get(PHONE) is None
+        mock_wa.send_interactive.assert_called()
 
     def test_reminder_cancel_event_not_found_resets_menu(self, mock_wa, mock_cal):
         mock_cal.get_citas_futuras.return_value = []

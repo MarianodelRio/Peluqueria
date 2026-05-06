@@ -16,10 +16,12 @@ TZ = pytz.timezone(TIMEZONE)
 OVERLAP_TOLERANCE_SECONDS = 60  # ±1 minute tolerance
 
 
-def generate_slots(start_str: str, end_str: str, duracion_min: int = 30) -> List[str]:
+def generate_slots(start_str: str, end_str: str, duracion_min: int = 30, step_min: int = CITA_DURACION_MIN) -> List[str]:
     """
     Generate time slots of duracion_min length between start and end.
     start_str, end_str: 'HH:MM' format.
+    step_min: how many minutes to advance between slot start times.
+              Defaults to CITA_DURACION_MIN (base appointment granularity).
     Returns list of 'HH:MM' strings. Last slot starts at end - duracion_min.
     """
     slots = []
@@ -31,7 +33,7 @@ def generate_slots(start_str: str, end_str: str, duracion_min: int = 30) -> List
         h = current // 60
         m = current % 60
         slots.append(f"{h:02d}:{m:02d}")
-        current += duracion_min
+        current += step_min
     return slots
 
 
@@ -42,7 +44,7 @@ def get_base_slots_for_day(d: date, duracion_min: int = 30) -> List[str]:
         return []
     slots = []
     for start_str, end_str in HORARIO_BASE[weekday]:
-        slots.extend(generate_slots(start_str, end_str, duracion_min))
+        slots.extend(generate_slots(start_str, end_str, duracion_min, step_min=CITA_DURACION_MIN))
     return slots
 
 

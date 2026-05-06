@@ -7,8 +7,7 @@ States:
   BOOK_SELECT_DAY        - user choosing a day
   BOOK_SELECT_HOUR       - user choosing a time slot
   VIEW_APPOINTMENTS      - showing user's future appointments
-  CANCEL_SELECT          - user choosing which appointment to cancel
-  CANCEL_CONFIRM         - user confirming cancellation
+  CANCEL_SELECT          - user choosing which appointment to cancel (cancels immediately)
 
 Rules:
   - Any text input (not interactive_id) outside MENU → menu to menu
@@ -28,13 +27,14 @@ from app.services import whatsapp as wa
 from app.utils.interactive import (
     build_main_menu, build_days_list, build_period_select, build_hours_list,
     build_appointments_view,
-    build_cancel_select, build_cancel_confirm,
+    build_cancel_select,
     build_service_select,
+    build_back_to_menu_message,
 )
 from app.utils.slots import get_next_days
 from app.utils.messages import (
     msg_sin_slots, msg_doble_reserva, msg_slot_no_disponible,
-    msg_cita_confirmada, msg_cancelacion_ok, msg_cancelacion_abortada,
+    msg_cita_confirmada, msg_cancelacion_ok,
     msg_sin_citas, msg_error_creando_cita,
 )
 
@@ -50,7 +50,6 @@ BOOK_SELECT_HOUR = "BOOK_SELECT_HOUR"
 BOOK_ENTER_NAME = "BOOK_ENTER_NAME"
 VIEW_APPOINTMENTS = "VIEW_APPOINTMENTS"
 CANCEL_SELECT = "CANCEL_SELECT"
-CANCEL_CONFIRM = "CANCEL_CONFIRM"
 
 
 @dataclass
@@ -168,7 +167,6 @@ def _process_message(phone: str, text: Optional[str], interactive_id: Optional[s
         BOOK_ENTER_NAME:     _handle_book_enter_name,
         VIEW_APPOINTMENTS:   _handle_view_appointments,
         CANCEL_SELECT:       _handle_cancel_select,
-        CANCEL_CONFIRM:      _handle_cancel_confirm,
     }
     handler = dispatch.get(state.step)
     if handler:
@@ -340,7 +338,7 @@ def _handle_book_select_period(phone: str, state: ConversationState, value: str)
 
     state.available_slots = slots
     state.step = BOOK_SELECT_HOUR
-    wa.send_interactive(phone, build_hours_list(state.selected_date, slots))
+    wa.send_interactive(phone, build_hours_list(state.selected_date, slots, show_change_period=True))
 
 
 # ── BOOK: SELECT HOUR ──────────────────────────────────────────────────────
@@ -349,6 +347,20 @@ def _handle_book_select_hour(phone: str, state: ConversationState, value: str):
     if value == "change_day":
         state.step = BOOK_SELECT_DAY
         wa.send_interactive(phone, build_days_list(state.available_days))
+        return
+
+    if value == "change_period":
+        morning, afternoon = _split_periods(state.all_day_slots)
+        if morning and afternoon:
+            base_morning, base_afternoon = _base_period_ranges(state.selected_date)
+            state.step = BOOK_SELECT_PERIOD
+            wa.send_interactive(phone, build_period_select(
+                state.selected_date,
+                base_morning or f"{morning[0]}-{morning[-1]}",
+                base_afternoon or f"{afternoon[0]}-{afternoon[-1]}",
+            ))
+        else:
+            _to_menu(phone)
         return
 
     if not value.startswith("hour_"):
@@ -371,7 +383,7 @@ def _handle_book_select_hour(phone: str, state: ConversationState, value: str):
 
     state.selected_slot = slot
     state.step = BOOK_ENTER_NAME
-    wa.send_text_message(phone, "¿Cuál es tu nombre?")
+    wa.send_text_message(phone, "¿Cuál es tu nombre y apellidos?")
 
 
 # ── BOOK: ENTER NAME ──────────────────────────────────────────────────────
@@ -419,7 +431,7 @@ def _handle_book_enter_name(phone: str, state: ConversationState, value: str):
         _to_menu(phone)
 
     else:
-        wa.send_text_message(phone, msg_cita_confirmada(d, hora, state.selected_service))
+        wa.send_interactive(phone, build_back_to_menu_message(msg_cita_confirmada(d, hora, state.selected_service)))
         _clear(phone)
 
 
@@ -450,36 +462,12 @@ def _handle_cancel_select(phone: str, state: ConversationState, value: str):
         _to_menu(phone)
         return
 
-    state.cancel_event_id = event_id
-    state.step = CANCEL_CONFIRM
-    d = cita['start'].date()
-    hora = cita['start'].strftime('%H:%M')
-    wa.send_interactive(phone, build_cancel_confirm(d, hora, event_id))
-
-
-# ── CANCEL: CONFIRM ────────────────────────────────────────────────────────
-
-def _handle_cancel_confirm(phone: str, state: ConversationState, value: str):
-    if value == "cancel_keep":
-        wa.send_text_message(phone, msg_cancelacion_abortada())
-        _to_menu(phone)
-        return
-
-    if not value.startswith("cancel_confirm_"):
-        _to_menu(phone)
-        return
-
-    event_id = value.removeprefix("cancel_confirm_")
-    if not event_id or event_id != state.cancel_event_id:
-        _to_menu(phone)
-        return
-
     if cal.cancelar_cita(event_id):
-        wa.send_text_message(phone, msg_cancelacion_ok())
+        wa.send_interactive(phone, build_back_to_menu_message(msg_cancelacion_ok()))
+        _clear(phone)
     else:
         wa.send_text_message(phone, "No se pudo cancelar la cita. Por favor, contáctanos.")
-
-    _to_menu(phone)
+        _to_menu(phone)
 
 
 # ── REMINDER RESPONSES ─────────────────────────────────────────────────────
@@ -512,13 +500,12 @@ def _handle_reminder_response(phone: str, interactive_id: str):
             wa.send_text_message(phone, "No se encontró esa cita.")
             _to_menu(phone)
             return
-        state = _get(phone)
-        state.step = CANCEL_CONFIRM
-        state.cancel_event_id = event_id
-        state.touch()
-        d = cita['start'].date()
-        hora = cita['start'].strftime('%H:%M')
-        wa.send_interactive(phone, build_cancel_confirm(d, hora, event_id))
+        if cal.cancelar_cita(event_id):
+            wa.send_interactive(phone, build_back_to_menu_message(msg_cancelacion_ok()))
+            _clear(phone)
+        else:
+            wa.send_text_message(phone, "No se pudo cancelar la cita. Por favor, contáctanos.")
+            _to_menu(phone)
 
     else:
         _to_menu(phone)

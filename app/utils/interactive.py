@@ -72,8 +72,8 @@ def _interactive_list(body: str, button_label: str, sections: list,
 def build_main_menu() -> dict:
     """Main menu with 3 reply buttons."""
     return _interactive_buttons(
-        header="✂️ Peluquería",
-        body="¿Qué quieres hacer?",
+        header="✂️ DM BARBER SHOP",
+        body="💈 ¡Bienvenido!\n¿En qué podemos ayudarte hoy?",
         buttons=[
             _button("menu_book",   "📅 Pedir cita"),
             _button("menu_view",   "📋 Mis citas"),
@@ -102,6 +102,7 @@ def build_period_select(d: date, morning_range: str, afternoon_range: str) -> di
 
 def build_days_list(days: List[date]) -> dict:
     """List of available days + back to menu."""
+    days = days[:9]
     rows = [_row(f"day_{d.isoformat()}", format_date_es(d).capitalize()) for d in days]
     rows.append(_row("back_to_menu", "↩️ Volver al menú"))
     return _interactive_list(
@@ -112,11 +113,28 @@ def build_days_list(days: List[date]) -> dict:
     )
 
 
-def build_hours_list(d: date, slots: List[str]) -> dict:
-    """List of available time slots + change day option."""
-    rows = [_row(f"hour_{d.isoformat()}_{s.replace(':', '')}", f"🕒 {s}") for s in slots]
-    rows.append(_row("change_day",   "📅 Cambiar día"))
-    rows.append(_row("back_to_menu", "↩️ Volver al menú"))
+def build_back_to_menu_message(body: str) -> dict:
+    """Single-button interactive message with a 'back to menu' button."""
+    return _interactive_buttons(body=body, buttons=[_button("back_to_menu", "↩️ Volver al menú")])
+
+
+def build_hours_list(d: date, slots: List[str], show_change_period: bool = False) -> dict:
+    """List of available time slots + navigation rows.
+
+    show_change_period=True:  caps slots at 7, appends change_period + change_day + back_to_menu (10 rows max).
+    show_change_period=False: caps slots at 8, appends change_day + back_to_menu (10 rows max).
+    """
+    if show_change_period:
+        capped = slots[:7]
+        rows = [_row(f"hour_{d.isoformat()}_{s.replace(':', '')}", f"🕒 {s}") for s in capped]
+        rows.append(_row("change_period", "↩️ Cambiar turno"))
+        rows.append(_row("change_day",    "📅 Cambiar día"))
+        rows.append(_row("back_to_menu",  "↩️ Volver al menú"))
+    else:
+        capped = slots[:8]
+        rows = [_row(f"hour_{d.isoformat()}_{s.replace(':', '')}", f"🕒 {s}") for s in capped]
+        rows.append(_row("change_day",   "📅 Cambiar día"))
+        rows.append(_row("back_to_menu", "↩️ Volver al menú"))
     return _interactive_list(
         header=f"🕒 {format_date_es(d).capitalize()}",
         body="Selecciona la hora:",
@@ -131,16 +149,16 @@ def build_service_select() -> dict:
         header="✂️ Elige tu servicio",
         body="¿Qué servicio quieres?",
         buttons=[
-            _button("service_corte",      "✂️ Corte - 10€"),
+            _button("service_corte",      "✂️ Corte 10€"),
             _button("service_corte_barba", "✂️ Corte+Barba 12€"),
-            _button("service_mechas",     "🎨 Mechas - 20€"),
+            _button("service_mechas",     "🎨 Mechas 20€"),
         ],
     )
 
 
 def build_appointments_view(citas: list) -> dict:
     """
-    Show all future appointments (flat list, max 8 + 2 nav = 10 rows).
+    Show all future appointments as a button message.
     citas: list of dicts with keys 'id', 'start' (datetime).
     """
     if not citas:
@@ -149,27 +167,17 @@ def build_appointments_view(citas: list) -> dict:
             buttons=[_button("back_to_menu", "↩️ Volver al menú")],
         )
 
-    rows = []
-    for c in citas[:9]:  # cap at 9 to leave room for back button (10 total)
+    body = "Tus próximas citas:\n\n"
+    for c in citas[:8]:
         d = c['start'].date()
         hora = c['start'].strftime('%H:%M')
-        rows.append(_row(
-            f"view_{c['id']}",
-            _trunc(f"📅 {format_date_es(d)}", 24),
-            f"🕒 {hora}",
-        ))
-    rows.append(_row("back_to_menu", "↩️ Volver al menú"))
+        body += f"📅 {format_date_es(d).capitalize()} — 🕒 {hora}\n"
+    body += "\nSi necesitas algo más, escríbenos cuando quieras 😊"
 
-    total = len(citas)
-    body = f"Tienes {total} cita(s) próxima(s)."
-    if total > 9:
-        body += " Mostrando las primeras 9."
-
-    return _interactive_list(
-        header="📋 Mis citas",
+    return _interactive_buttons(
+        header="📋 DM BARBER SHOP",
         body=body,
-        button_label="Ver citas",
-        sections=[_section("Próximas citas", rows)],
+        buttons=[_button("back_to_menu", "↩️ Volver al menú")],
     )
 
 
@@ -203,19 +211,3 @@ def build_cancel_select(citas: list) -> dict:
     )
 
 
-def build_cancel_confirm(d: date, slot: str, event_id: str) -> dict:
-    """Confirm cancellation: Sí cancelar / No mantener / Volver al menú."""
-    body = (
-        f"¿Cancelar esta cita?\n\n"
-        f"📅 {format_date_es(d).capitalize()}\n"
-        f"🕒 {slot}"
-    )
-    return _interactive_buttons(
-        header="❌ Confirmar cancelación",
-        body=body,
-        buttons=[
-            _button(f"cancel_confirm_{event_id}", "✅ Sí, cancelar"),
-            _button("cancel_keep",                "🔒 No, mantener"),
-            _button("back_to_menu",               "↩️ Volver al menú"),
-        ],
-    )

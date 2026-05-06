@@ -67,9 +67,9 @@ class TestGenerateSlots:
         assert "11:00" not in slots
 
     def test_duracion_120_produces_correct_slots(self):
-        # 10:00-14:00 with 120-min duration → 10:00 and 12:00 only
+        # 10:00-14:00 with 120-min window, 30-min step → slots at 10:00, 10:30, 11:00, 11:30, 12:00
         slots = generate_slots("10:00", "14:00", duracion_min=120)
-        assert slots == ["10:00", "12:00"]
+        assert slots == ["10:00", "10:30", "11:00", "11:30", "12:00"]
 
     def test_default_duracion_backward_compat(self):
         # No third arg → same as before (30-min slots)
@@ -106,6 +106,15 @@ class TestGetBaseSlotsForDay:
         slots_120 = get_base_slots_for_day(monday, duracion_min=120)
         assert len(slots_120) < len(slots_30)
         assert len(slots_120) > 0
+
+    def test_duracion_120_base_slots_have_30min_step(self):
+        monday = date(2026, 3, 23)
+        slots = get_base_slots_for_day(monday, duracion_min=120)
+        assert len(slots) == 10
+        assert slots[0] == "10:00"
+        assert slots[1] == "10:30"
+        assert slots[5] == "16:00"
+        assert slots[6] == "16:30"
 
 
 # ── slot_to_datetime ──────────────────────────────────────────────────────────

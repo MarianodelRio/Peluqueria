@@ -10,16 +10,13 @@ def msg_cita_confirmada(d: date, hora: str, servicio: dict) -> str:
         f"¡Tu cita está confirmada! ✅\n\n"
         f"✂️ {servicio['nombre']} — {servicio['precio']}€\n"
         f"📅 {format_date_es(d).capitalize()}\n"
-        f"🕒 {hora}"
+        f"🕒 {hora}\n\n"
+        f"¡Te esperamos! Si necesitas hacer algún cambio, puedes cancelar o reservar una nueva cita desde el menú cuando quieras. 💈"
     )
 
 
 def msg_cancelacion_ok() -> str:
-    return "Tu cita ha sido cancelada ✅"
-
-
-def msg_cancelacion_abortada() -> str:
-    return "Cancelación descartada. ¡Hasta pronto!"
+    return "Tu cita ha sido cancelada ✅\n\nSi quieres reservar una nueva cita o necesitas algo más, escríbenos cuando quieras. ¡Hasta pronto! 💈"
 
 
 def msg_sin_citas() -> str:

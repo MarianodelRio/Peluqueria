@@ -40,7 +40,7 @@ SERVICIOS = {
 # Appointment settings
 CITA_DURACION_MIN = 30
 ESTADO_EXPIRACION_MIN = 30
-BOOKING_WINDOW_DAYS = 7  # Calendar days to look ahead when offering available days
+BOOKING_WINDOW_DAYS = 14  # Calendar days to look ahead when offering available days
 
 # Scheduler intervals (minutes)
 SYNC_MANUAL_INTERVAL_MIN = 60

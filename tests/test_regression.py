@@ -309,7 +309,7 @@ class TestNameMaxLength:
         mock_cal.reservar_cita.return_value = ("evt_new", None)
         send(text="Ana García")
         # Valid name books directly and clears state
-        assert mock_wa.send_text_message.call_count >= 1
+        assert mock_wa.send_interactive.call_count >= 1
         assert conv._states.get(PHONE) is None
 
     def test_boundary_100_chars_accepted(self, mock_wa, mock_cal):
@@ -318,7 +318,7 @@ class TestNameMaxLength:
         mock_cal.reservar_cita.return_value = ("evt_new", None)
         send(text="A" * 100)
         # Valid name (exactly at limit) books directly and clears state
-        assert mock_wa.send_text_message.call_count >= 1
+        assert mock_wa.send_interactive.call_count >= 1
         assert conv._states.get(PHONE) is None
 
     def test_boundary_101_chars_rejected(self, mock_wa, mock_cal):

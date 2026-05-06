@@ -125,7 +125,7 @@ def _get_slots_disponibles_uncached(d: date, duracion_min: int = 30) -> List[str
         return []
 
     base_slots = (
-        generate_slots(special_schedule['start'], special_schedule['end'], duracion_min)
+        generate_slots(special_schedule['start'], special_schedule['end'], duracion_min, step_min=CITA_DURACION_MIN)
         if special_schedule else get_base_slots_for_day(d, duracion_min)
     )
 

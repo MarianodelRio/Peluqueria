@@ -14,7 +14,7 @@ from app.utils.interactive import (
     build_service_select,
     build_appointments_view,
     build_cancel_select,
-    build_cancel_confirm,
+    build_back_to_menu_message,
 )
 import pytz
 from datetime import datetime
@@ -195,26 +195,41 @@ class TestBuildAppointmentsView:
         msg = build_appointments_view([])
         assert msg["interactive"]["type"] == "button"
 
-    def test_with_citas_shows_list(self):
+    def test_with_citas_shows_button(self):
         citas = [make_cita("evt1", 2026, 3, 23, 10, 0)]
         msg = build_appointments_view(citas)
-        assert msg["interactive"]["type"] == "list"
-
-    def test_max_10_rows(self):
-        citas = [make_cita(f"evt{i}", 2026, 3, 23 + i // 24, 10, 0) for i in range(12)]
-        rows = _all_rows(build_appointments_view(citas))
-        assert len(rows) <= 10
+        assert msg["interactive"]["type"] == "button"
 
     def test_back_button_always_present(self):
         citas = [make_cita("evt1", 2026, 3, 23, 10, 0)]
-        rows = _all_rows(build_appointments_view(citas))
-        assert any(r["id"] == "back_to_menu" for r in rows)
+        buttons = _buttons(build_appointments_view(citas))
+        assert any(b["reply"]["id"] == "back_to_menu" for b in buttons)
 
-    def test_overflow_message_shown(self):
-        citas = [make_cita(f"evt{i}", 2026, 3, 23, 10, 0) for i in range(10)]
+    def test_single_back_button(self):
+        citas = [make_cita("evt1", 2026, 3, 23, 10, 0)]
+        buttons = _buttons(build_appointments_view(citas))
+        assert len(buttons) == 1
+
+    def test_body_contains_appointment_lines(self):
+        citas = [make_cita("evt1", 2026, 3, 23, 10, 0)]
         msg = build_appointments_view(citas)
         body = msg["interactive"]["body"]["text"]
-        assert "9" in body or "primeras" in body
+        assert "📅" in body
+        assert "🕒" in body
+
+    def test_body_contains_closing_message(self):
+        citas = [make_cita("evt1", 2026, 3, 23, 10, 0)]
+        msg = build_appointments_view(citas)
+        body = msg["interactive"]["body"]["text"]
+        assert "escríbenos" in body
+
+    def test_capped_at_8_appointments(self):
+        citas = [make_cita(f"evt{i}", 2026, 3, 23, 10, 0) for i in range(12)]
+        msg = build_appointments_view(citas)
+        body = msg["interactive"]["body"]["text"]
+        # Only 8 lines starting with 📅 should appear
+        lines_with_date = [l for l in body.splitlines() if "📅" in l]
+        assert len(lines_with_date) == 8
 
 
 # ── build_cancel_select ─────────────────────────────────────────────────────────
@@ -235,23 +250,48 @@ class TestBuildCancelSelect:
         assert len(rows) <= 10
 
 
-# ── build_cancel_confirm ────────────────────────────────────────────────────────
+# ── build_back_to_menu_message ──────────────────────────────────────────────────
 
-class TestBuildCancelConfirm:
-    def test_structure(self):
-        msg = build_cancel_confirm(date(2026, 3, 23), "10:00", "evt_xyz")
+class TestBuildBackToMenuMessage:
+    def test_type_is_button(self):
+        msg = build_back_to_menu_message("Tu cita está confirmada.")
+        assert msg["type"] == "interactive"
         assert msg["interactive"]["type"] == "button"
 
-    def test_confirm_button_id_contains_event_id(self):
-        msg = build_cancel_confirm(date(2026, 3, 23), "10:00", "evt_xyz")
-        ids = {b["reply"]["id"] for b in _buttons(msg)}
-        assert "cancel_confirm_evt_xyz" in ids
+    def test_exactly_one_button(self):
+        msg = build_back_to_menu_message("Tu cita está confirmada.")
+        assert len(_buttons(msg)) == 1
 
-    def test_keep_button_present(self):
-        msg = build_cancel_confirm(date(2026, 3, 23), "10:00", "evt_xyz")
-        ids = {b["reply"]["id"] for b in _buttons(msg)}
-        assert "cancel_keep" in ids
+    def test_button_id_is_back_to_menu(self):
+        msg = build_back_to_menu_message("Tu cita está confirmada.")
+        assert _buttons(msg)[0]["reply"]["id"] == "back_to_menu"
 
-    def test_three_buttons(self):
-        msg = build_cancel_confirm(date(2026, 3, 23), "10:00", "evt_xyz")
-        assert len(_buttons(msg)) == 3
+    def test_body_matches_passed_string(self):
+        body_text = "Cita cancelada correctamente."
+        msg = build_back_to_menu_message(body_text)
+        assert msg["interactive"]["body"]["text"] == body_text
+
+
+# ── build_hours_list with show_change_period ────────────────────────────────────
+
+class TestBuildHoursListShowChangePeriod:
+    def test_7_slots_show_change_period_true_yields_10_rows(self):
+        slots = [f"10:{m:02d}" for m in range(0, 210, 30)][:7]  # 7 slots
+        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, show_change_period=True))
+        assert len(rows) == 10
+
+    def test_show_change_period_true_row_ids_include_all_nav(self):
+        slots = ["10:00", "10:30", "11:00"]
+        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, show_change_period=True))
+        row_ids = [r["id"] for r in rows]
+        assert "change_period" in row_ids
+        assert "change_day" in row_ids
+        assert "back_to_menu" in row_ids
+
+    def test_show_change_period_false_does_not_include_change_period(self):
+        slots = ["10:00", "10:30", "11:00"]
+        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, show_change_period=False))
+        row_ids = [r["id"] for r in rows]
+        assert "change_period" not in row_ids
+
+
