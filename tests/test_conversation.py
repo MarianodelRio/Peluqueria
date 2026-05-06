@@ -6,6 +6,7 @@ Validates state transitions, business rules and concurrency protection.
 """
 import pytest
 import threading
+import time
 from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, patch, call
 import pytz
@@ -40,6 +41,7 @@ def mock_cal():
         cal.get_slots_disponibles.return_value = ["10:00", "10:30", "11:00",
                                                    "16:00", "16:30", "17:00"]
         cal.get_citas_futuras.return_value = []
+        cal.get_event_by_id.return_value = None
         cal.reservar_cita.return_value = ("evt_new", None)
         cal.cancelar_cita.return_value = True
         cal.confirmar_cita.return_value = True
@@ -441,15 +443,15 @@ class TestCancelFlow:
 
 class TestReminderResponses:
     def test_reminder_confirm_confirms_appointment(self, mock_wa, mock_cal):
-        mock_cal.get_citas_futuras.return_value = [
-            {"id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
-        ]
+        mock_cal.get_event_by_id.return_value = {
+            "id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))
+        }
         send(interactive_id="reminder_confirm_evt1")
         mock_cal.confirmar_cita.assert_called_once_with("evt1")
         mock_wa.send_text_message.assert_called()
 
     def test_reminder_confirm_event_not_found_resets_menu(self, mock_wa, mock_cal):
-        mock_cal.get_citas_futuras.return_value = []
+        mock_cal.get_event_by_id.return_value = None
         send(interactive_id="reminder_confirm_evt_missing")
         import app.handlers.conversation as conv
         assert conv._states.get(PHONE) is None
@@ -457,9 +459,9 @@ class TestReminderResponses:
 
     def test_reminder_cancel_cancels_directly(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
-        mock_cal.get_citas_futuras.return_value = [
-            {"id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
-        ]
+        mock_cal.get_event_by_id.return_value = {
+            "id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))
+        }
         mock_cal.cancelar_cita.return_value = True
         send(interactive_id="reminder_cancel_evt1")
         mock_cal.cancelar_cita.assert_called_once_with("evt1")
@@ -467,7 +469,7 @@ class TestReminderResponses:
         mock_wa.send_interactive.assert_called()
 
     def test_reminder_cancel_event_not_found_resets_menu(self, mock_wa, mock_cal):
-        mock_cal.get_citas_futuras.return_value = []
+        mock_cal.get_event_by_id.return_value = None
         send(interactive_id="reminder_cancel_evt_missing")
         import app.handlers.conversation as conv
         assert conv._states.get(PHONE) is None
@@ -477,11 +479,37 @@ class TestReminderResponses:
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
         state.step = conv.BOOK_ENTER_NAME   # deep in booking flow
-        mock_cal.get_citas_futuras.return_value = [
-            {"id": "evt_xyz", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
-        ]
+        mock_cal.get_event_by_id.return_value = {
+            "id": "evt_xyz", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))
+        }
         send(interactive_id="reminder_confirm_evt_xyz")
         mock_cal.confirmar_cita.assert_called_once_with("evt_xyz")
+
+    def test_reminder_confirm_uses_get_event_by_id_not_full_list(self, mock_wa, mock_cal):
+        """_handle_reminder_response calls get_event_by_id, not get_citas_futuras."""
+        mock_cal.get_event_by_id.return_value = {
+            "id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))
+        }
+        send(interactive_id="reminder_confirm_evt1")
+        mock_cal.get_event_by_id.assert_called_once_with("evt1", PHONE)
+        mock_cal.get_citas_futuras.assert_not_called()
+
+    def test_reminder_cancel_uses_get_event_by_id_not_full_list(self, mock_wa, mock_cal):
+        """_handle_reminder_response calls get_event_by_id, not get_citas_futuras."""
+        mock_cal.get_event_by_id.return_value = {
+            "id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))
+        }
+        mock_cal.cancelar_cita.return_value = True
+        send(interactive_id="reminder_cancel_evt1")
+        mock_cal.get_event_by_id.assert_called_once_with("evt1", PHONE)
+        mock_cal.get_citas_futuras.assert_not_called()
+
+    def test_reminder_confirm_for_other_phone_returns_not_found(self, mock_wa, mock_cal):
+        """get_event_by_id returning None (phone mismatch) is treated as not found."""
+        mock_cal.get_event_by_id.return_value = None
+        send(interactive_id="reminder_confirm_evt1")
+        mock_cal.confirmar_cita.assert_not_called()
+        mock_wa.send_text_message.assert_called()
 
 
 # ── Text input routing ─────────────────────────────────────────────────────────
@@ -517,6 +545,26 @@ class TestCleanExpiredStates:
         state.last_interaction = datetime.now(TZ)
         conv.clean_expired_states()
         assert "new_phone" in conv._states
+
+    def test_stale_citas_cache_entry_purged(self):
+        import app.handlers.conversation as conv
+        import app.services.calendar as cal
+        cal._citas_cache["stale_phone"] = ([], time.time() - 999)
+        try:
+            conv.clean_expired_states()
+            assert "stale_phone" not in cal._citas_cache
+        finally:
+            cal._citas_cache.pop("stale_phone", None)
+
+    def test_fresh_citas_cache_entry_kept(self):
+        import app.handlers.conversation as conv
+        import app.services.calendar as cal
+        cal._citas_cache["fresh_phone"] = ([], time.time())
+        try:
+            conv.clean_expired_states()
+            assert "fresh_phone" in cal._citas_cache
+        finally:
+            cal._citas_cache.pop("fresh_phone", None)
 
 
 # ── Mechas conversation flow ───────────────────────────────────────────────────

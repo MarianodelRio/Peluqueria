@@ -21,7 +21,7 @@ from datetime import date, datetime
 from typing import Optional
 import pytz
 
-from app.config import TIMEZONE, ESTADO_EXPIRACION_MIN, HORARIO_BASE, BOOKING_WINDOW_DAYS, SERVICIOS
+from app.config import TIMEZONE, ESTADO_EXPIRACION_MIN, HORARIO_BASE, BOOKING_WINDOW_DAYS, SERVICIOS, CITAS_CACHE_TTL_SEC
 from app.services import calendar as cal
 from app.services import whatsapp as wa
 from app.utils.interactive import (
@@ -101,6 +101,7 @@ def _clear(phone: str):
 
 def clean_expired_states():
     """Remove states inactive for more than ESTADO_EXPIRACION_MIN minutes."""
+    import time as _time
     now = datetime.now(TZ)
     # Snapshot items first — iterating a live dict while another thread may
     # add/remove keys raises RuntimeError in CPython.
@@ -114,6 +115,16 @@ def clean_expired_states():
         _states.pop(p, None)
         with _phone_locks_guard:
             _phone_locks.pop(p, None)
+
+    # Purge stale citas cache entries
+    now_ts = _time.time()
+    with cal._citas_cache_lock:
+        stale_phones = [
+            phone for phone, (_, ts) in list(cal._citas_cache.items())
+            if now_ts - ts >= CITAS_CACHE_TTL_SEC
+        ]
+        for phone in stale_phones:
+            cal._citas_cache.pop(phone, None)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────
@@ -494,8 +505,7 @@ def _handle_reminder_response(phone: str, interactive_id: str):
     """
     if interactive_id.startswith("reminder_confirm_"):
         event_id = interactive_id.removeprefix("reminder_confirm_")
-        citas = cal.get_citas_futuras(phone)
-        cita = next((c for c in citas if c['id'] == event_id), None)
+        cita = cal.get_event_by_id(event_id, phone)
         if not cita:
             wa.send_text_message(phone, "No se encontró esa cita.")
             _to_menu(phone)
@@ -508,8 +518,7 @@ def _handle_reminder_response(phone: str, interactive_id: str):
 
     elif interactive_id.startswith("reminder_cancel_"):
         event_id = interactive_id.removeprefix("reminder_cancel_")
-        citas = cal.get_citas_futuras(phone)
-        cita = next((c for c in citas if c['id'] == event_id), None)
+        cita = cal.get_event_by_id(event_id, phone)
         if not cita:
             wa.send_text_message(phone, "No se encontró esa cita.")
             _to_menu(phone)

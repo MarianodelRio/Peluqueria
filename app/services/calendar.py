@@ -14,7 +14,7 @@ import pytz
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
-from app.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_ID, TIMEZONE, CITA_DURACION_MIN, GOOGLE_API_TIMEOUT_SEC, SLOT_CACHE_TTL_SEC, SERVICIOS
+from app.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_ID, TIMEZONE, CITA_DURACION_MIN, GOOGLE_API_TIMEOUT_SEC, SLOT_CACHE_TTL_SEC, CITAS_CACHE_TTL_SEC, SERVICIOS
 from app.utils import metrics
 from app.utils.security import mask_phone
 from app.utils.parser import (
@@ -160,6 +160,23 @@ def _get_slot_lock(d: date, hora: str) -> threading.Lock:
 # ── Slot availability cache ────────────────────────────────────────────────
 _slot_cache: dict[str, tuple[list, float]] = {}
 _slot_cache_lock = threading.Lock()
+
+
+# ── Citas-per-phone cache ──────────────────────────────────────────────────
+_citas_cache: dict[str, tuple[list, float]] = {}
+_citas_cache_lock = threading.Lock()
+
+
+def _invalidate_citas_cache(phone: Optional[str]) -> None:
+    """
+    Remove the cached citas entry for `phone`.
+    No-op if phone is None or not in cache.
+    Safe to call from any thread.
+    """
+    if phone is None:
+        return
+    with _citas_cache_lock:
+        _citas_cache.pop(phone, None)
 
 
 def _slot_cache_key(d: date, duracion_min: int = 30, presencia_cliente_min: int = 30) -> str:
@@ -406,6 +423,7 @@ def crear_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict) -
         logger.info(f"[CAL] Created appointment (confirmed): {nombre} {mask_phone(telefono)} {d} {hora} event_id={created['id']}")
         _invalidate_slot_cache(d)
         metrics.inc('bookings_created')
+        _invalidate_citas_cache(telefono)
         return created['id']
     except Exception as e:
         logger.error(f"[CAL] Error creating appointment: {e}")
@@ -422,6 +440,7 @@ def confirmar_cita(event_id: str) -> bool:
         event['description'] = desc
         service.events().update(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event).execute(num_retries=2)
         logger.info(f"[CAL] Confirmed appointment event_id={event_id}")
+        _invalidate_citas_cache(parse_tel(desc))
         return True
     except Exception as e:
         logger.error(f"[CAL] Error confirming appointment {event_id}: {e}")
@@ -448,6 +467,7 @@ def cancelar_cita(event_id: str) -> bool:
         metrics.inc('bookings_cancelled')
         if event_date:
             _invalidate_slot_cache(event_date)
+        _invalidate_citas_cache(parse_tel(event.get('description', '') or ''))
         return True
     except Exception as e:
         logger.error(f"[CAL] Error deleting appointment {event_id}: {e}")
@@ -525,6 +545,7 @@ def marcar_manual_confirmado(event_id: str) -> bool:
         event['description'] = desc
         service.events().update(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event).execute(num_retries=2)
         logger.info(f"[CAL] Marked manual event confirmed: {event_id}")
+        _invalidate_citas_cache(parse_tel(desc))
         return True
     except Exception as e:
         logger.error(f"[CAL] Error marking manual confirmed {event_id}: {e}")
@@ -606,8 +627,17 @@ def get_citas_futuras(telefono: str) -> list:
     """
     Return ALL future appointments for a phone number, ordered by date.
     Returns [] on Google Calendar API failure (graceful degradation).
+    Results are cached per phone for CITAS_CACHE_TTL_SEC seconds.
     """
     try:
+        # Cache read
+        now_ts = time.time()
+        with _citas_cache_lock:
+            if telefono in _citas_cache:
+                cached, ts = _citas_cache[telefono]
+                if now_ts - ts < CITAS_CACHE_TTL_SEC:
+                    return list(cached)
+
         service = _get_service()
         now = datetime.now(TZ)
         time_max = (now + timedelta(days=30)).isoformat()
@@ -648,11 +678,58 @@ def get_citas_futuras(telefono: str) -> list:
                 'end': end_dt,
             })
 
+        # Cache write
+        with _citas_cache_lock:
+            _citas_cache[telefono] = (list(citas), time.time())
+
         return citas
     except Exception as e:
         logger.error(f"[CAL] Error fetching citas for {mask_phone(telefono)}: {e}", exc_info=True)
         metrics.inc('calendar_errors')
         return []
+
+
+def get_event_by_id(event_id: str, phone: str) -> Optional[dict]:
+    """
+    Fetch a single appointment event by ID and verify ownership.
+
+    Security: returns None if the event's Telefono field does not match `phone`,
+    making phone-mismatch indistinguishable from a missing event to the caller.
+
+    Returns a dict with keys {id, title, description, start, end} matching the
+    entries returned by get_citas_futuras, or None on any error / ownership failure.
+    """
+    try:
+        service = _get_service()
+        event = service.events().get(
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id
+        ).execute(num_retries=2)
+    except Exception as e:
+        logger.debug(f"[CAL] get_event_by_id not found or error event_id={event_id}: {e}")
+        return None
+
+    title = event.get('summary', '') or ''
+    if parse_cfg(title):
+        return None
+
+    start_raw = event.get('start', {})
+    if 'dateTime' not in start_raw:
+        return None
+
+    desc = event.get('description', '') or ''
+    if parse_tel(desc) != phone:
+        return None
+
+    start_dt = datetime.fromisoformat(start_raw['dateTime']).astimezone(TZ)
+    end_dt = datetime.fromisoformat(event.get('end', {})['dateTime']).astimezone(TZ)
+
+    return {
+        'id': event['id'],
+        'title': title,
+        'description': desc,
+        'start': start_dt,
+        'end': end_dt,
+    }
 
 
 def check_calendar_health() -> bool:

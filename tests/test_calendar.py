@@ -42,14 +42,16 @@ def make_all_day_event(event_id, summary, d: date):
 @pytest.fixture(autouse=True)
 def reset_thread_local():
     """Force _get_service to rebuild on each test (avoid state leakage).
-    Also clears the slot cache so tests don't interfere with each other.
+    Also clears the slot cache and citas cache so tests don't interfere with each other.
     """
     import app.services.calendar as cal
     if hasattr(cal._thread_local, "service"):
         del cal._thread_local.service
     cal._slot_cache.clear()
+    cal._citas_cache.clear()
     yield
     cal._slot_cache.clear()
+    cal._citas_cache.clear()
 
 
 @pytest.fixture
@@ -857,3 +859,261 @@ class TestGetSlotsDisponiblesRange:
         assert result[date(2026, 3, 24)] == []
         assert result[date(2026, 3, 25)] == []
         assert result[date(2026, 3, 26)] == []
+
+
+# ── TestCitasCacheInfrastructure ───────────────────────────────────────────────
+
+class TestCitasCacheInfrastructure:
+
+    def _make_cita_event(self, svc, telefono="34600000001"):
+        now = datetime.now(TZ)
+        desc = f"Nombre: Ana\nTelefono: {telefono}\nEstado: confirmada\nRecordatorio: no"
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt1", "Corte de pelo - Ana", desc,
+                now + timedelta(days=1), now + timedelta(days=1, minutes=30)
+            )]
+        }
+
+    def test_get_citas_futuras_caches_result(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        self._make_cita_event(svc)
+
+        cal.get_citas_futuras("34600000001")
+        cal.get_citas_futuras("34600000001")
+
+        # Only one events.list call — second hit is from cache
+        assert svc.events.return_value.list.return_value.execute.call_count == 1
+
+    def test_get_citas_futuras_cache_expires_after_ttl(self, cal_with_service):
+        import app.services.calendar as cal_module
+        import time
+        cal, svc = cal_with_service
+        self._make_cita_event(svc)
+
+        cal.get_citas_futuras("34600000001")
+
+        # Manually expire the cache entry
+        with cal_module._citas_cache_lock:
+            citas, _ = cal_module._citas_cache["34600000001"]
+            cal_module._citas_cache["34600000001"] = (citas, time.time() - 61)
+
+        cal.get_citas_futuras("34600000001")
+
+        # Should have fetched again after expiry
+        assert svc.events.return_value.list.return_value.execute.call_count == 2
+
+    def test_get_citas_futuras_cache_separate_per_phone(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        # First phone
+        self._make_cita_event(svc, "34600000001")
+        cal.get_citas_futuras("34600000001")
+
+        # Second phone
+        self._make_cita_event(svc, "34600000002")
+        cal.get_citas_futuras("34600000002")
+
+        # Both should be cached independently
+        assert "34600000001" in cal_module._citas_cache
+        assert "34600000002" in cal_module._citas_cache
+
+    def test_get_citas_futuras_returns_defensive_copy(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        self._make_cita_event(svc)
+
+        result1 = cal.get_citas_futuras("34600000001")
+        result1.append({"id": "intruder"})
+
+        result2 = cal.get_citas_futuras("34600000001")
+        # The mutation of result1 must not affect cached data or result2
+        assert not any(c["id"] == "intruder" for c in result2)
+
+    def test_get_citas_futuras_does_not_cache_on_exception(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.side_effect = Exception("API down")
+
+        result = cal.get_citas_futuras("34600000001")
+
+        assert result == []
+        assert "34600000001" not in cal_module._citas_cache
+
+    def test_crear_cita_invalidates_citas_cache_for_telefono(self, cal_with_service):
+        import app.services.calendar as cal_module
+        import time
+        cal, svc = cal_with_service
+        self._make_cita_event(svc)
+
+        # Populate cache
+        cal.get_citas_futuras("34600000001")
+        assert "34600000001" in cal_module._citas_cache
+
+        # crear_cita must evict the entry
+        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["corte"])
+        assert "34600000001" not in cal_module._citas_cache
+
+    def test_cancelar_cita_invalidates_citas_cache_extracted_from_event(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        # Seed cache for phone
+        cal_module._citas_cache["34600000001"] = ([], __import__("time").time())
+
+        # Event returned by events().get() contains the phone
+        svc.events.return_value.get.return_value.execute.return_value = {
+            "id": "evt1",
+            "description": "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no",
+            "start": {"dateTime": "2026-03-23T10:00:00+01:00"},
+        }
+        cal.cancelar_cita("evt1")
+        assert "34600000001" not in cal_module._citas_cache
+
+    def test_confirmar_cita_invalidates_citas_cache(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        # Seed cache
+        cal_module._citas_cache["34600000001"] = ([], __import__("time").time())
+
+        svc.events.return_value.get.return_value.execute.return_value = {
+            "id": "evt1",
+            "description": "Nombre: Ana\nTelefono: 34600000001\nEstado: pendiente\nRecordatorio: no",
+        }
+        cal.confirmar_cita("evt1")
+        assert "34600000001" not in cal_module._citas_cache
+
+    def test_marcar_manual_confirmado_invalidates_citas_cache(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        # Seed cache
+        cal_module._citas_cache["34600000002"] = ([], __import__("time").time())
+
+        svc.events.return_value.get.return_value.execute.return_value = {
+            "id": "evt2",
+            "description": "Nombre: Luis\nTelefono: 34600000002\nEstado: pendiente\nRecordatorio: no",
+        }
+        cal.marcar_manual_confirmado("evt2")
+        assert "34600000002" not in cal_module._citas_cache
+
+    def test_invalidate_citas_cache_with_none_is_noop(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        # Should not raise
+        cal_module._invalidate_citas_cache(None)
+        # Cache remains unchanged
+        assert cal_module._citas_cache == {}
+
+    def test_invalidate_citas_cache_when_event_has_no_telefono(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        # Event description has no Telefono field
+        svc.events.return_value.get.return_value.execute.return_value = {
+            "id": "evt1",
+            "description": "Nombre: Ana\nEstado: pendiente",
+            "start": {"dateTime": "2026-03-23T10:00:00+01:00"},
+        }
+        # Should not raise even when parse_tel returns None
+        cal.cancelar_cita("evt1")  # triggers invalidation with None phone
+        assert cal_module._citas_cache == {}
+
+    def test_cache_key_consistent_between_crear_and_cancelar(self, cal_with_service):
+        """
+        CRITICAL: phone stored by crear_cita and phone extracted by cancelar_cita
+        must use the same key format (digits-only, no '+').
+        """
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        self._make_cita_event(svc)
+
+        # Populate cache using the same phone format crear_cita would use
+        telefono = "34600000001"
+        cal.get_citas_futuras(telefono)
+        assert telefono in cal_module._citas_cache
+
+        # cancelar_cita fetches the event, parses the phone, then invalidates
+        svc.events.return_value.get.return_value.execute.return_value = {
+            "id": "evt1",
+            "description": f"Nombre: Ana\nTelefono: {telefono}\nEstado: confirmada\nRecordatorio: no",
+            "start": {"dateTime": "2026-03-23T10:00:00+01:00"},
+        }
+        cal.cancelar_cita("evt1")
+
+        # Key must have been evicted (same format on both sides)
+        assert telefono not in cal_module._citas_cache
+
+
+# ── TestGetEventById ───────────────────────────────────────────────────────────
+
+class TestGetEventById:
+
+    def _make_event_response(self, svc, telefono="34600000001", event_id="evt1",
+                              summary="Corte de pelo - Ana", all_day=False, description=None):
+        if description is None:
+            description = f"Nombre: Ana\nTelefono: {telefono}\nEstado: confirmada\nRecordatorio: no"
+        if all_day:
+            svc.events.return_value.get.return_value.execute.return_value = {
+                "id": event_id,
+                "summary": summary,
+                "description": description,
+                "start": {"date": "2026-03-23"},
+                "end": {"date": "2026-03-23"},
+            }
+        else:
+            svc.events.return_value.get.return_value.execute.return_value = {
+                "id": event_id,
+                "summary": summary,
+                "description": description,
+                "start": {"dateTime": "2026-03-23T10:00:00+01:00"},
+                "end": {"dateTime": "2026-03-23T10:30:00+01:00"},
+            }
+
+    def test_get_event_by_id_returns_event_when_phone_matches(self, cal_with_service):
+        cal, svc = cal_with_service
+        self._make_event_response(svc)
+        result = cal.get_event_by_id("evt1", "34600000001")
+        assert result is not None
+        assert result["id"] == "evt1"
+        assert result["title"] == "Corte de pelo - Ana"
+        assert "start" in result
+        assert "end" in result
+        assert "description" in result
+
+    def test_get_event_by_id_returns_none_when_phone_mismatch(self, cal_with_service):
+        cal, svc = cal_with_service
+        self._make_event_response(svc, telefono="34600000001")
+        result = cal.get_event_by_id("evt1", "34600000999")
+        assert result is None
+
+    def test_get_event_by_id_returns_none_when_event_not_found(self, cal_with_service):
+        cal, svc = cal_with_service
+        svc.events.return_value.get.return_value.execute.side_effect = Exception("Not found")
+        result = cal.get_event_by_id("evt_missing", "34600000001")
+        assert result is None
+
+    def test_get_event_by_id_returns_none_for_cfg_event(self, cal_with_service):
+        cal, svc = cal_with_service
+        self._make_event_response(svc, summary="[CFG] CERRADO", telefono="34600000001")
+        result = cal.get_event_by_id("evt1", "34600000001")
+        assert result is None
+
+    def test_get_event_by_id_returns_none_for_all_day_event(self, cal_with_service):
+        cal, svc = cal_with_service
+        self._make_event_response(svc, all_day=True)
+        result = cal.get_event_by_id("evt1", "34600000001")
+        assert result is None
+
+    def test_get_event_by_id_returns_none_when_no_phone_in_description(self, cal_with_service):
+        cal, svc = cal_with_service
+        self._make_event_response(
+            svc,
+            description="Nombre: Ana\nEstado: confirmada\nRecordatorio: no",
+        )
+        result = cal.get_event_by_id("evt1", "34600000001")
+        assert result is None
