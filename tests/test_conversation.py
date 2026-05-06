@@ -112,7 +112,7 @@ class TestBookSelectService:
     def test_service_corte_transitions_to_select_day(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
-        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
+        mock_cal.get_slots_disponibles_range.return_value = {date(2026, 3, 23): ["10:00", "10:30"], date(2026, 3, 24): ["10:00", "10:30"]}
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23), date(2026, 3, 24)]):
             send(interactive_id="service_corte")
@@ -122,7 +122,7 @@ class TestBookSelectService:
 
     def test_service_mechas_has_60_min_duration(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
-        mock_cal.get_slots_disponibles.return_value = ["10:00"]
+        mock_cal.get_slots_disponibles_range.return_value = {date(2026, 3, 23): ["10:00"]}
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23)]):
             send(interactive_id="service_mechas")
@@ -135,7 +135,7 @@ class TestBookSelectService:
         assert conv._states.get(PHONE) is None
 
     def test_no_days_available_shows_message(self, mock_wa, mock_cal):
-        mock_cal.get_slots_disponibles.return_value = []
+        mock_cal.get_slots_disponibles_range.return_value = {}
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23)]):
             send(interactive_id="service_corte")
@@ -587,3 +587,53 @@ class TestPerPhoneLock:
 
         # Both must have completed without raising
         assert len(results) == 2
+
+
+# ── Range-fetch optimisation ───────────────────────────────────────────────────
+
+class TestBookSelectServiceRangeFetch:
+    def test_handle_book_select_service_uses_range_call(self, mock_wa, mock_cal):
+        """After service-pick, get_slots_disponibles_range is called once and get_slots_disponibles is not called."""
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+
+        today = date(2026, 5, 12)
+        days = [today + timedelta(days=i) for i in range(15)]
+
+        slots_by_day = {d: ["10:00", "10:30"] for d in days}
+        mock_cal.get_slots_disponibles_range.return_value = slots_by_day
+        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_SERVICE
+
+        with patch("app.handlers.conversation.get_next_days", return_value=days):
+            send(interactive_id="service_corte")
+
+        assert mock_cal.get_slots_disponibles_range.call_count == 1
+        assert mock_cal.get_slots_disponibles.call_count == 0
+
+    def test_handle_book_select_service_then_select_day_no_extra_range_call(self, mock_wa, mock_cal):
+        """After service-pick then day-pick, range is called only once (at service step)."""
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+
+        today = date(2026, 5, 12)
+        days = [today + timedelta(days=i) for i in range(15)]
+
+        slots_by_day = {d: ["10:00", "10:30"] for d in days}
+        mock_cal.get_slots_disponibles_range.return_value = slots_by_day
+        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_SERVICE
+
+        with patch("app.handlers.conversation.get_next_days", return_value=days):
+            send(interactive_id="service_corte")
+
+        # Now dispatch a day-pick
+        day_id = f"day_{days[1].isoformat()}"
+        send(interactive_id=day_id)
+
+        # range should still be called only once (from the service step)
+        assert mock_cal.get_slots_disponibles_range.call_count == 1

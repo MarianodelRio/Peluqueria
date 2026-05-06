@@ -621,3 +621,239 @@ class TestGetCitasFuturas:
         svc.events.return_value.list.return_value.execute.side_effect = Exception("API error")
         result = cal.get_citas_futuras("34600000001")
         assert result == []
+
+
+# ── _get_events_in_range ──────────────────────────────────────────────────────────
+
+def make_timed_gc_event(event_id, summary, description, start_dt, end_dt):
+    """Build a timed Google Calendar API item dict."""
+    return {
+        "id": event_id,
+        "summary": summary,
+        "description": description,
+        "start": {"dateTime": start_dt.isoformat()},
+        "end":   {"dateTime": end_dt.isoformat()},
+    }
+
+
+def make_range_all_day_event(event_id, summary, start_date_str, end_date_str):
+    """Build an all-day Google Calendar API item dict with explicit start/end dates."""
+    return {
+        "id": event_id,
+        "summary": summary,
+        "description": "",
+        "start": {"date": start_date_str},
+        "end":   {"date": end_date_str},
+    }
+
+
+class TestGetEventsInRange:
+    def test_get_events_in_range_single_call(self, cal_with_service):
+        """Verify events().list().execute() called once with correct timeMin/timeMax."""
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.return_value = {"items": []}
+
+        start = date(2026, 5, 10)
+        end = date(2026, 5, 15)
+        cal._get_events_in_range(svc, start, end)
+
+        assert svc.events.return_value.list.return_value.execute.call_count == 1
+        call_kwargs = svc.events.return_value.list.call_args[1]
+        assert "2026-05-10T00:00:00" in call_kwargs["timeMin"]
+        assert "2026-05-15T23:59:59" in call_kwargs["timeMax"]
+
+    def test_get_events_in_range_groups_by_date(self, cal_with_service):
+        """3 timed events on 3 different dates → dict with those 3 keys populated."""
+        cal, svc = cal_with_service
+        start = date(2026, 5, 10)
+        end = date(2026, 5, 15)
+
+        evt1 = make_timed_gc_event("e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30))
+        evt2 = make_timed_gc_event("e2", "B", "", aware(2026, 5, 12, 11, 0), aware(2026, 5, 12, 11, 30))
+        evt3 = make_timed_gc_event("e3", "C", "", aware(2026, 5, 14, 15, 0), aware(2026, 5, 14, 15, 30))
+        svc.events.return_value.list.return_value.execute.return_value = {"items": [evt1, evt2, evt3]}
+
+        result = cal._get_events_in_range(svc, start, end)
+
+        assert len(result[date(2026, 5, 10)]) == 1
+        assert result[date(2026, 5, 10)][0]['id'] == 'e1'
+        assert len(result[date(2026, 5, 12)]) == 1
+        assert result[date(2026, 5, 12)][0]['id'] == 'e2'
+        assert len(result[date(2026, 5, 14)]) == 1
+        assert result[date(2026, 5, 14)][0]['id'] == 'e3'
+        # Days without events have empty lists
+        assert result[date(2026, 5, 11)] == []
+
+    def test_get_events_in_range_expands_multi_day_all_day(self, cal_with_service):
+        """All-day event 2026-05-10 to 2026-05-13 → buckets for 10, 11, 12 (NOT 13)."""
+        cal, svc = cal_with_service
+        start = date(2026, 5, 10)
+        end = date(2026, 5, 15)
+
+        all_day = make_range_all_day_event("cfg1", "[CFG] CERRADO", "2026-05-10", "2026-05-13")
+        svc.events.return_value.list.return_value.execute.return_value = {"items": [all_day]}
+
+        result = cal._get_events_in_range(svc, start, end)
+
+        assert len(result[date(2026, 5, 10)]) == 1
+        assert len(result[date(2026, 5, 11)]) == 1
+        assert len(result[date(2026, 5, 12)]) == 1
+        assert result[date(2026, 5, 13)] == []  # end is exclusive
+
+    def test_get_events_in_range_pagination(self, cal_with_service):
+        """First execute returns nextPageToken, second returns more events — both batches concatenated."""
+        cal, svc = cal_with_service
+        start = date(2026, 5, 10)
+        end = date(2026, 5, 15)
+
+        evt1 = make_timed_gc_event("e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30))
+        evt2 = make_timed_gc_event("e2", "B", "", aware(2026, 5, 11, 10, 0), aware(2026, 5, 11, 10, 30))
+
+        svc.events.return_value.list.return_value.execute.side_effect = [
+            {"items": [evt1], "nextPageToken": "token_page2"},
+            {"items": [evt2]},
+        ]
+
+        result = cal._get_events_in_range(svc, start, end)
+
+        assert len(result[date(2026, 5, 10)]) == 1
+        assert len(result[date(2026, 5, 11)]) == 1
+        assert svc.events.return_value.list.return_value.execute.call_count == 2
+
+    def test_get_events_in_range_pagination_safety_cap(self, cal_with_service):
+        """Every page returns nextPageToken → loop stops at 5 pages, doesn't hang."""
+        cal, svc = cal_with_service
+        start = date(2026, 5, 10)
+        end = date(2026, 5, 15)
+
+        # Every page returns a token — should stop after 5
+        always_token_page = {"items": [], "nextPageToken": "keep_going"}
+        svc.events.return_value.list.return_value.execute.side_effect = [always_token_page] * 10
+
+        result = cal._get_events_in_range(svc, start, end)
+
+        assert svc.events.return_value.list.return_value.execute.call_count == 5
+        assert isinstance(result, dict)
+
+
+# ── _compute_slots ────────────────────────────────────────────────────────────────
+
+class TestComputeSlots:
+    def test_compute_slots_pure_function_no_io(self):
+        """Call directly with pre-built events; result matches _get_slots_disponibles_uncached logic."""
+        import app.services.calendar as cal_module
+        d = date(2026, 3, 24)  # Tuesday with schedule 10:00-14:00 and 17:00-21:00
+
+        # One blocking event at 10:00-10:30
+        blocking = {
+            'id': 'e1', 'title': 'Cita', 'description': '',
+            'start': aware(2026, 3, 24, 10, 0), 'end': aware(2026, 3, 24, 10, 30),
+            'all_day': False,
+        }
+        result = cal_module._compute_slots(d, [blocking], duracion_min=30, presencia_cliente_min=30)
+
+        assert "10:00" not in result
+        assert "10:30" in result
+        assert "11:00" in result
+        assert "17:00" in result
+
+    def test_compute_slots_cerrado_returns_empty(self):
+        """[CFG] CERRADO all-day event → empty list."""
+        import app.services.calendar as cal_module
+        d = date(2026, 3, 24)
+        cfg_ev = {
+            'id': 'cfg1', 'title': '[CFG] CERRADO', 'description': '',
+            'start': aware(2026, 3, 24, 0, 0), 'end': aware(2026, 3, 24, 23, 59),
+            'all_day': True,
+        }
+        result = cal_module._compute_slots(d, [cfg_ev])
+        assert result == []
+
+
+# ── get_slots_disponibles_range ───────────────────────────────────────────────────
+
+class TestGetSlotsDisponiblesRange:
+    def test_get_slots_disponibles_range_populates_cache(self, cal_with_service):
+        """After range call, per-day get_slots_disponibles makes no extra API calls."""
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.return_value = {"items": []}
+
+        start = date(2026, 5, 12)   # Monday
+        end = date(2026, 5, 25)     # Sunday (14 calendar days later)
+
+        cal.get_slots_disponibles_range(start, end)
+        call_count_after_range = svc.events.return_value.list.return_value.execute.call_count
+
+        # Now fetch each day individually — should all be cache hits → no new calls
+        current = start
+        while current <= end:
+            cal.get_slots_disponibles(current)
+            current += timedelta(days=1)
+
+        assert svc.events.return_value.list.return_value.execute.call_count == call_count_after_range
+
+    def test_get_slots_disponibles_range_filters_today_past_slots(self, cal_with_service):
+        """Slots <= 12:30 absent from today's return value; cached entry is unfiltered."""
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.return_value = {"items": []}
+
+        today = date(2026, 3, 24)  # Tuesday — has morning and afternoon slots
+
+        fixed_now = TZ.localize(datetime(2026, 3, 24, 12, 30, 0))
+
+        with patch("app.services.calendar.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_now
+            mock_dt.fromisoformat = datetime.fromisoformat
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+
+            result = cal_module.get_slots_disponibles_range(today, today)
+
+        day_result = result[today]
+        # Slots at or before 12:30 must not appear
+        for slot in ["10:00", "10:30", "11:00", "12:00", "12:30"]:
+            assert slot not in day_result, f"Expected {slot} to be filtered out"
+        # Afternoon slots must appear
+        assert "17:00" in day_result
+
+        # Cached entry must be unfiltered (contains morning slots)
+        cache_key = cal_module._slot_cache_key(today, 30, 30)
+        cached_slots, _ = cal_module._slot_cache[cache_key]
+        assert "10:00" in cached_slots
+
+    def test_get_slots_disponibles_range_handles_calendar_failure(self, cal_with_service):
+        """Exception raised by Calendar API → range returns {}."""
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.side_effect = Exception("API down")
+
+        result = cal.get_slots_disponibles_range(date(2026, 5, 10), date(2026, 5, 15))
+        assert result == {}
+
+    def test_get_slots_disponibles_range_with_cfg_cerrado(self, cal_with_service):
+        """[CFG] CERRADO all-day for one date → that date returns []."""
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        target = date(2026, 3, 24)  # Tuesday (would normally have slots)
+        cfg_event = make_range_all_day_event("cfg1", "[CFG] CERRADO", "2026-03-24", "2026-03-25")
+        svc.events.return_value.list.return_value.execute.return_value = {"items": [cfg_event]}
+
+        result = cal_module.get_slots_disponibles_range(target, target)
+        assert result[target] == []
+
+    def test_get_slots_disponibles_range_with_cfg_vacaciones_multi_day(self, cal_with_service):
+        """[CFG] VACACIONES all-day spanning 3 days → those 3 days return []."""
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        start = date(2026, 3, 24)  # Tuesday
+        end = date(2026, 3, 26)    # Thursday
+
+        # Vacaciones covers all 3 days (end date exclusive = 2026-03-27)
+        cfg_event = make_range_all_day_event("cfg1", "[CFG] VACACIONES", "2026-03-24", "2026-03-27")
+        svc.events.return_value.list.return_value.execute.return_value = {"items": [cfg_event]}
+
+        result = cal_module.get_slots_disponibles_range(start, end)
+        assert result[date(2026, 3, 24)] == []
+        assert result[date(2026, 3, 25)] == []
+        assert result[date(2026, 3, 26)] == []

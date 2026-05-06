@@ -99,11 +99,12 @@ def _get_day_events(service, d: date) -> List[dict]:
     return events
 
 
-def _get_slots_disponibles_uncached(d: date, duracion_min: int = 30, presencia_cliente_min: int = 30) -> List[str]:
-    """Internal: fetch slots from Google Calendar without cache."""
-    service = _get_service()
-    events = _get_day_events(service, d)
-
+def _compute_slots(d: date, events: List[dict], duracion_min: int = 30, presencia_cliente_min: int = 30) -> List[str]:
+    """
+    Pure function: compute available slots for a day given pre-fetched events.
+    Does NOT include the today-filter (caller handles that).
+    events: list of dicts in the same format as _get_day_events returns.
+    """
     is_closed = False
     special_schedule = None
     blocking_events = []
@@ -132,13 +133,14 @@ def _get_slots_disponibles_uncached(d: date, duracion_min: int = 30, presencia_c
     if not base_slots:
         return []
 
-    available = filter_available_slots(base_slots, d, blocking_events, duracion_min)
+    return filter_available_slots(base_slots, d, blocking_events, duracion_min)
 
-    if d == datetime.now(TZ).date():
-        now_time = datetime.now(TZ).strftime("%H:%M")
-        available = [s for s in available if s > now_time]
 
-    return available
+def _get_slots_disponibles_uncached(d: date, duracion_min: int = 30, presencia_cliente_min: int = 30) -> List[str]:
+    """Internal: fetch slots from Google Calendar without cache. Today-filter applied by caller."""
+    service = _get_service()
+    events = _get_day_events(service, d)
+    return _compute_slots(d, events, duracion_min, presencia_cliente_min)
 
 
 # ── Per-slot locks (prevent race conditions during booking) ────────────────
@@ -179,7 +181,11 @@ def get_slots_disponibles(d: date, bypass_cache: bool = False, duracion_min: int
     bypass_cache=True skips cache and always fetches live data (used during booking).
     duracion_min: calendar event duration in minutes (used for collision detection).
     presencia_cliente_min: client presence window in minutes (used for slot generation).
+    Cache stores the UNFILTERED list; today-filter is applied on every read.
     """
+    today = datetime.now(TZ).date()
+    now_time = datetime.now(TZ).strftime("%H:%M")
+
     if not bypass_cache:
         key = _slot_cache_key(d, duracion_min, presencia_cliente_min)
         now_ts = time.time()
@@ -187,7 +193,10 @@ def get_slots_disponibles(d: date, bypass_cache: bool = False, duracion_min: int
             if key in _slot_cache:
                 result, ts = _slot_cache[key]
                 if now_ts - ts < SLOT_CACHE_TTL_SEC:
-                    return list(result)
+                    result = list(result)
+                    if d == today:
+                        result = [s for s in result if s > now_time]
+                    return result
 
     try:
         result = _get_slots_disponibles_uncached(d, duracion_min=duracion_min, presencia_cliente_min=presencia_cliente_min)
@@ -198,9 +207,142 @@ def get_slots_disponibles(d: date, bypass_cache: bool = False, duracion_min: int
 
     if not bypass_cache:
         with _slot_cache_lock:
+            # Store unfiltered — today-filter is applied on read
             _slot_cache[_slot_cache_key(d, duracion_min, presencia_cliente_min)] = (list(result), time.time())
 
+    if d == today:
+        result = [s for s in result if s > now_time]
     return result
+
+
+def _get_events_in_range(service, start: date, end: date) -> dict:
+    """
+    Fetch all events for every date in [start, end] inclusive via a single API call.
+    Returns dict[date, List[dict]] where each value uses the same format as _get_day_events.
+    Paginates automatically, capped at 5 pages to prevent runaway loops.
+    """
+    range_start = TZ.localize(datetime(start.year, start.month, start.day, 0, 0, 0))
+    range_end = TZ.localize(datetime(end.year, end.month, end.day, 23, 59, 59))
+
+    # Initialise a bucket for every date in the range (days with no events get [])
+    buckets: dict = {}
+    current = start
+    while current <= end:
+        buckets[current] = []
+        current += timedelta(days=1)
+
+    page_token = None
+    pages_fetched = 0
+    max_pages = 5
+
+    while pages_fetched < max_pages:
+        kwargs = dict(
+            calendarId=GOOGLE_CALENDAR_ID,
+            timeMin=range_start.isoformat(),
+            timeMax=range_end.isoformat(),
+            singleEvents=True,
+            orderBy='startTime',
+        )
+        if page_token:
+            kwargs['pageToken'] = page_token
+
+        result = service.events().list(**kwargs).execute(num_retries=2)
+        pages_fetched += 1
+
+        for item in result.get('items', []):
+            start_raw = item.get('start', {})
+            end_raw = item.get('end', {})
+            title = item.get('summary', '')
+            description = item.get('description', '') or ''
+            event_id = item['id']
+
+            if 'date' in start_raw:
+                # All-day event — end.date is EXCLUSIVE, expand with while d < end_d
+                start_d = date.fromisoformat(start_raw['date'])
+                end_d = date.fromisoformat(end_raw['date'])
+                d = start_d
+                while d < end_d:
+                    if d in buckets:
+                        day_start = TZ.localize(datetime(d.year, d.month, d.day, 0, 0, 0))
+                        day_end = TZ.localize(datetime(d.year, d.month, d.day, 23, 59, 59))
+                        buckets[d].append({
+                            'id': event_id,
+                            'title': title,
+                            'description': description,
+                            'start': day_start,
+                            'end': day_end,
+                            'all_day': True,
+                        })
+                    d += timedelta(days=1)
+            else:
+                # Timed event — bucket by start date
+                start_dt = datetime.fromisoformat(start_raw['dateTime']).astimezone(TZ)
+                end_dt = datetime.fromisoformat(end_raw['dateTime']).astimezone(TZ)
+                d = start_dt.date()
+                if d in buckets:
+                    buckets[d].append({
+                        'id': event_id,
+                        'title': title,
+                        'description': description,
+                        'start': start_dt,
+                        'end': end_dt,
+                        'all_day': False,
+                    })
+
+        page_token = result.get('nextPageToken')
+        if not page_token:
+            break
+
+    return buckets
+
+
+def get_slots_disponibles_range(
+    start: date,
+    end: date,
+    duracion_min: int = 30,
+    presencia_cliente_min: int = 30,
+) -> dict:
+    """
+    Fetch and compute available slots for every date in [start, end] inclusive
+    using a single batched Google Calendar API call.
+
+    Populates the per-day slot cache (unfiltered) as a side-effect so that
+    subsequent single-day get_slots_disponibles() calls are cache hits.
+
+    Returns dict[date, List[str]] with today-filter applied on today's value.
+    Returns {} on any error.
+    """
+    try:
+        service = _get_service()
+        events_by_day = _get_events_in_range(service, start, end)
+
+        today = datetime.now(TZ).date()
+        now_time = datetime.now(TZ).strftime("%H:%M")
+        now_ts = time.time()
+
+        result: dict = {}
+        current = start
+        while current <= end:
+            slots = _compute_slots(current, events_by_day.get(current, []), duracion_min, presencia_cliente_min)
+
+            # Write unfiltered slots to cache
+            key = _slot_cache_key(current, duracion_min, presencia_cliente_min)
+            with _slot_cache_lock:
+                _slot_cache[key] = (list(slots), now_ts)
+
+            # Apply today-filter only to the returned value
+            if current == today:
+                result[current] = [s for s in slots if s > now_time]
+            else:
+                result[current] = list(slots)
+
+            current += timedelta(days=1)
+
+        return result
+    except Exception as e:
+        logger.error(f"[CAL] Error in get_slots_disponibles_range({start}, {end}): {e}", exc_info=True)
+        metrics.inc('calendar_errors')
+        return {}
 
 
 def slot_sigue_libre(d: date, hora: str, duracion_min: int = 30, presencia_cliente_min: int = 30) -> bool:

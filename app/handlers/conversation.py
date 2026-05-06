@@ -252,9 +252,15 @@ def _handle_book_select_service(phone: str, state: ConversationState, value: str
         return
     state.selected_service = SERVICIOS[key]
     days = get_next_days(BOOKING_WINDOW_DAYS)
-    available_days = [d for d in days if cal.get_slots_disponibles(
-        d, duracion_min=state.selected_service['duracion_min'],
-        presencia_cliente_min=state.selected_service['presencia_cliente_min'])]
+    if not days:
+        available_days = []
+    else:
+        slots_by_day = cal.get_slots_disponibles_range(
+            days[0], days[-1],
+            duracion_min=state.selected_service['duracion_min'],
+            presencia_cliente_min=state.selected_service['presencia_cliente_min'],
+        )
+        available_days = [d for d in days if slots_by_day.get(d)]
     if not available_days:
         wa.send_text_message(phone, msg_sin_slots())
         _to_menu(phone)

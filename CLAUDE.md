@@ -24,7 +24,7 @@ app/
     webhook.py           # GET /webhook (verification) + POST /webhook (incoming messages)
     conversation.py      # State machine: MENU → BOOK_SELECT_SERVICE → BOOK_SELECT_DAY → BOOK_SELECT_PERIOD → BOOK_SELECT_HOUR → BOOK_ENTER_NAME; CANCEL_SELECT → CANCEL_CONFIRM. Entry: handle_message()
   services/
-    calendar.py          # All Calendar operations. Slot cache (30s TTL). Per-slot booking locks.
+    calendar.py          # All Calendar operations. Slot cache (30s TTL). Per-slot booking locks. Range-batched fetch for day picker.
     whatsapp.py          # send_text_message(), send_interactive(), send_template()
     scheduler.py         # 3 jobs: sync manual bookings (5 min), reminders (1 h), state cleanup (10 min)
   utils/
@@ -84,6 +84,9 @@ Three services are defined in `SERVICIOS` in `config.py`. Each affects slot gene
 - `presencia_cliente_min` controls when the last slot of the day/period is offered (the client must finish before closing).
 - For services without a waiting period, both values are equal.
 - The slot cache key includes both `duracion_min` and `presencia_cliente_min` — calls with different durations or presence windows are cached separately.
+
+### Day-picker fetch
+`_handle_book_select_service` calls `get_slots_disponibles_range(today, today+14d)` ONCE — single Calendar API call that populates the per-day slot cache, so subsequent single-day fetches are cache hits.
 
 ### Scheduler idempotency
 - Reminder job checks `Recordatorio: sí` before sending — skips if already sent.
