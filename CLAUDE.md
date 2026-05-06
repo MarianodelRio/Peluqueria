@@ -78,7 +78,7 @@ Three services are defined in `SERVICIOS` in `config.py`. Each affects slot gene
 |-----|-------------|-------|---------------|
 | `corte` | Corte de pelo | 10 € | 30 min |
 | `corte_barba` | Corte de pelo + barba | 12 € | 30 min |
-| `mechas` | Mechas | 20 € | 120 min |
+| `mechas` | Mechas | 30 € | 120 min |
 
 - `duracion_min` is passed to `get_slots_disponibles` to block slots whose window would overlap an existing event.
 - `duracion_min` sets the event end time when `crear_cita` is called.

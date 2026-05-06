@@ -20,7 +20,7 @@ Los clientes reservan, consultan y cancelan citas por WhatsApp. El peluquero ges
 |----------|--------|----------|
 | Corte de pelo | 10 € | 30 min |
 | Corte de pelo + barba | 12 € | 30 min |
-| Mechas | 20 € | 2 h |
+| Mechas | 30 € | 2 h |
 
 La duración determina cuántos slots se bloquean tras una reserva y el horario de fin del evento en Google Calendar.
 

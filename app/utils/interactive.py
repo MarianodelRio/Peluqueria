@@ -146,7 +146,7 @@ def build_service_select() -> dict:
         buttons=[
             _button("service_corte",      "✂️ Corte 10€"),
             _button("service_corte_barba", "✂️ Corte+Barba 12€"),
-            _button("service_mechas",     "🎨 Mechas 20€"),
+            _button("service_mechas",     "🎨 Mechas 30€"),
         ],
     )
 
