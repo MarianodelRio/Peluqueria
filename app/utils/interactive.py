@@ -5,7 +5,7 @@ Builders for WhatsApp Cloud API interactive message payloads.
 WhatsApp limits:
 - button reply: max 3 buttons, button text max 20 chars, id max 256 chars
 - list message: max 10 TOTAL rows across ALL sections, row title max 24 chars
-  → always keep rows ≤ 8 content rows + 2 nav rows = 10 max
+  → always keep rows ≤ 9 content rows + 1 nav row = 10 max
 """
 from datetime import date
 from typing import List, Optional
@@ -91,7 +91,7 @@ def build_period_select(d: date, morning_range: str, afternoon_range: str) -> di
     buttons = [
         _button("period_morning",   f"Mañana {morning_range}"),
         _button("period_afternoon", f"Tarde {afternoon_range}"),
-        _button("back_to_menu",     "↩️ Volver al menú"),
+        _button("back_to_day",       "📅 Cambiar día"),
     ]
     return _interactive_buttons(
         header=f"📅 {format_date_es(d).capitalize()}",
@@ -118,23 +118,18 @@ def build_back_to_menu_message(body: str) -> dict:
     return _interactive_buttons(body=body, buttons=[_button("back_to_menu", "↩️ Volver al menú")])
 
 
-def build_hours_list(d: date, slots: List[str], show_change_period: bool = False) -> dict:
-    """List of available time slots + navigation rows.
+def build_hours_list(d: date, slots: List[str], came_from_period: bool = False) -> dict:
+    """List of available time slots + single contextual nav row.
 
-    show_change_period=True:  caps slots at 7, appends change_period + change_day + back_to_menu (10 rows max).
-    show_change_period=False: caps slots at 8, appends change_day + back_to_menu (10 rows max).
+    came_from_period=True:  caps slots at 9, appends back_to_period (10 rows max).
+    came_from_period=False: caps slots at 9, appends back_to_day    (10 rows max).
     """
-    if show_change_period:
-        capped = slots[:7]
-        rows = [_row(f"hour_{d.isoformat()}_{s.replace(':', '')}", f"🕒 {s}") for s in capped]
-        rows.append(_row("change_period", "↩️ Cambiar turno"))
-        rows.append(_row("change_day",    "📅 Cambiar día"))
-        rows.append(_row("back_to_menu",  "↩️ Volver al menú"))
+    capped = slots[:9]
+    rows = [_row(f"hour_{d.isoformat()}_{s.replace(':', '')}", f"🕒 {s}") for s in capped]
+    if came_from_period:
+        rows.append(_row("back_to_period", "↩️ Cambiar turno"))
     else:
-        capped = slots[:8]
-        rows = [_row(f"hour_{d.isoformat()}_{s.replace(':', '')}", f"🕒 {s}") for s in capped]
-        rows.append(_row("change_day",   "📅 Cambiar día"))
-        rows.append(_row("back_to_menu", "↩️ Volver al menú"))
+        rows.append(_row("back_to_day", "📅 Cambiar día"))
     return _interactive_list(
         header=f"🕒 {format_date_es(d).capitalize()}",
         body="Selecciona la hora:",

@@ -187,8 +187,8 @@ def _go_to_hour_select(phone: str, state: ConversationState, d: date, slots: lis
     """
     Navigate to hour selection from any booking step.
     Splits slots into morning/afternoon and shows period picker when both
-    are available, so build_hours_list never receives more than 8 slots
-    (WhatsApp limit: 8 content rows + 2 nav rows = 10 max).
+    are available, so build_hours_list never receives more than 9 slots
+    (WhatsApp limit: 9 content rows + 1 nav row = 10 max).
     """
     state.all_day_slots = slots
     morning, afternoon = _split_periods(slots)
@@ -326,6 +326,10 @@ def _handle_book_select_period(phone: str, state: ConversationState, value: str)
         slots = morning
     elif value == "period_afternoon":
         slots = afternoon
+    elif value == "back_to_day":
+        state.step = BOOK_SELECT_DAY
+        wa.send_interactive(phone, build_days_list(state.available_days))
+        return
     else:
         _to_menu(phone)
         return
@@ -338,18 +342,18 @@ def _handle_book_select_period(phone: str, state: ConversationState, value: str)
 
     state.available_slots = slots
     state.step = BOOK_SELECT_HOUR
-    wa.send_interactive(phone, build_hours_list(state.selected_date, slots, show_change_period=True))
+    wa.send_interactive(phone, build_hours_list(state.selected_date, slots, came_from_period=True))
 
 
 # ── BOOK: SELECT HOUR ──────────────────────────────────────────────────────
 
 def _handle_book_select_hour(phone: str, state: ConversationState, value: str):
-    if value == "change_day":
+    if value == "back_to_day":
         state.step = BOOK_SELECT_DAY
         wa.send_interactive(phone, build_days_list(state.available_days))
         return
 
-    if value == "change_period":
+    if value == "back_to_period":
         morning, afternoon = _split_periods(state.all_day_slots)
         if morning and afternoon:
             base_morning, base_afternoon = _base_period_ranges(state.selected_date)

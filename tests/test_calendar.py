@@ -77,9 +77,9 @@ def cal_with_service(mock_service):
 class TestGetSlotsDisponibles:
     def test_normal_day_returns_slots(self, cal_with_service):
         cal, svc = cal_with_service
-        monday = date(2026, 3, 23)
-        slots = cal.get_slots_disponibles(monday)
-        for start, _ in HORARIO_BASE[0]:
+        tuesday = date(2026, 3, 24)
+        slots = cal.get_slots_disponibles(tuesday)
+        for start, _ in HORARIO_BASE[1]:
             assert start in slots
 
     def test_saturday_has_slots(self, cal_with_service):
@@ -90,7 +90,7 @@ class TestGetSlotsDisponibles:
             assert start in slots
         # periods not in Saturday config should produce no slots
         configured_starts = {s for s, _ in HORARIO_BASE[5]}
-        unconfigured = {s for s, _ in HORARIO_BASE[0]} - configured_starts
+        unconfigured = {s for s, _ in HORARIO_BASE[1]} - configured_starts
         for start in unconfigured:
             assert start not in slots
 
@@ -115,23 +115,23 @@ class TestGetSlotsDisponibles:
 
     def test_special_schedule_cfg(self, cal_with_service):
         cal, svc = cal_with_service
-        d = date(2026, 3, 23)
+        d = date(2026, 3, 24)
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_all_day_event("cfg1", "[CFG] HORARIO 10:00-12:00", d)]
         }
         slots = cal.get_slots_disponibles(d)
         # Only 10:00 and 10:30 and 11:00 and 11:30 fit in 10:00-12:00
         assert "10:00" in slots
-        assert "16:00" not in slots
+        assert "17:00" not in slots
 
     def test_occupied_slot_removed(self, cal_with_service):
         cal, svc = cal_with_service
-        d = date(2026, 3, 23)
+        d = date(2026, 3, 24)
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
                 "evt1", "Cita - Ana",
                 "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no",
-                aware(2026, 3, 23, 10, 0), aware(2026, 3, 23, 10, 30)
+                aware(2026, 3, 24, 10, 0), aware(2026, 3, 24, 10, 30)
             )]
         }
         slots = cal.get_slots_disponibles(d)
@@ -141,35 +141,35 @@ class TestGetSlotsDisponibles:
     def test_mechas_slot_blocked_when_event_in_2h_window(self, cal_with_service):
         """An event at 11:30-12:00 blocks 10:00 when duration is 120 min."""
         cal, svc = cal_with_service
-        monday = date(2026, 3, 23)
+        tuesday = date(2026, 3, 24)
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
                 "evt1", "Cita - Luis",
                 "Nombre: Luis\nTelefono: 34600000002\nEstado: confirmada\nRecordatorio: no",
-                aware(2026, 3, 23, 11, 30), aware(2026, 3, 23, 12, 0)
+                aware(2026, 3, 24, 11, 30), aware(2026, 3, 24, 12, 0)
             )]
         }
-        slots = cal.get_slots_disponibles(monday, duracion_min=120)
+        slots = cal.get_slots_disponibles(tuesday, duracion_min=120)
         assert "10:00" not in slots
 
     def test_mechas_slot_free_when_event_outside_2h_window(self, cal_with_service):
         """An event at 12:30-13:00 does not block 10:00 when duration is 120 min."""
         cal, svc = cal_with_service
-        monday = date(2026, 3, 23)
+        tuesday = date(2026, 3, 24)
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
                 "evt1", "Cita - Luis",
                 "Nombre: Luis\nTelefono: 34600000002\nEstado: confirmada\nRecordatorio: no",
-                aware(2026, 3, 23, 12, 30), aware(2026, 3, 23, 13, 0)
+                aware(2026, 3, 24, 12, 30), aware(2026, 3, 24, 13, 0)
             )]
         }
-        slots = cal.get_slots_disponibles(monday, duracion_min=120)
+        slots = cal.get_slots_disponibles(tuesday, duracion_min=120)
         assert "10:00" in slots
 
     def test_cache_key_includes_duracion_min(self, cal_with_service):
         """Calling get_slots_disponibles with different duracion_min creates separate cache keys."""
         import app.services.calendar as cal_module
-        d = date(2026, 3, 23)
+        d = date(2026, 3, 24)
         cal_module.get_slots_disponibles(d, duracion_min=30)
         cal_module.get_slots_disponibles(d, duracion_min=120)
         keys = list(cal_module._slot_cache.keys())
@@ -244,7 +244,7 @@ class TestCrearCita:
         from datetime import datetime
         start = datetime.fromisoformat(body["start"]["dateTime"])
         end = datetime.fromisoformat(body["end"]["dateTime"])
-        assert end - start == timedelta(minutes=120)
+        assert end - start == timedelta(minutes=60)
 
     def test_crear_cita_description_contains_servicio_line(self, cal_with_service):
         cal, svc = cal_with_service
@@ -254,13 +254,13 @@ class TestCrearCita:
 
     def test_get_slots_disponibles_passes_duracion_min(self, cal_with_service):
         cal, svc = cal_with_service
-        result = cal.get_slots_disponibles(date(2026, 3, 23), duracion_min=120)
+        result = cal.get_slots_disponibles(date(2026, 3, 24), duracion_min=120)
         assert isinstance(result, list)
 
     def test_slot_sigue_libre_passes_duracion_min(self, cal_with_service):
         cal, svc = cal_with_service
-        # With no blocking events, 10:00 should be free for any duration on a Monday
-        result = cal.slot_sigue_libre(date(2026, 3, 23), "10:00", duracion_min=120)
+        # With no blocking events, 10:00 should be free for any duration on a Tuesday
+        result = cal.slot_sigue_libre(date(2026, 3, 24), "10:00", duracion_min=120)
         assert isinstance(result, bool)
 
 

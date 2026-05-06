@@ -40,14 +40,14 @@ def aware(y, m, d, h, mi=0):
 class TestGenerateSlots:
     def test_morning_block(self):
         # Uses HORARIO_BASE morning period to stay config-aligned
-        start, end = HORARIO_BASE[0][0]
+        start, end = HORARIO_BASE[1][0]
         slots = generate_slots(start, end)
         minutes = (int(end[:2]) * 60 + int(end[3:])) - (int(start[:2]) * 60 + int(start[3:]))
         assert len(slots) == minutes // CITA_DURACION_MIN
         assert slots[0] == start
 
     def test_afternoon_block(self):
-        start, end = HORARIO_BASE[0][1]
+        start, end = HORARIO_BASE[1][1]
         slots = generate_slots(start, end)
         minutes = (int(end[:2]) * 60 + int(end[3:])) - (int(start[:2]) * 60 + int(start[3:]))
         assert len(slots) == minutes // CITA_DURACION_MIN
@@ -81,10 +81,10 @@ class TestGenerateSlots:
 # ── get_base_slots_for_day ────────────────────────────────────────────────────
 
 class TestGetBaseSlotsForDay:
-    def test_monday_has_slots(self):
-        monday = date(2026, 3, 23)   # Monday
-        slots = get_base_slots_for_day(monday)
-        assert slots == _slots_for_weekday(0)
+    def test_tuesday_has_slots(self):
+        tuesday = date(2026, 3, 24)   # Tuesday
+        slots = get_base_slots_for_day(tuesday)
+        assert slots == _slots_for_weekday(1)
 
     def test_saturday_has_slots(self):
         saturday = date(2026, 3, 28)
@@ -101,20 +101,20 @@ class TestGetBaseSlotsForDay:
         assert slots == _slots_for_weekday(4)
 
     def test_duracion_120_returns_fewer_slots_than_default(self):
-        monday = date(2026, 3, 23)
-        slots_30 = get_base_slots_for_day(monday)
-        slots_120 = get_base_slots_for_day(monday, duracion_min=120)
+        tuesday = date(2026, 3, 24)
+        slots_30 = get_base_slots_for_day(tuesday)
+        slots_120 = get_base_slots_for_day(tuesday, duracion_min=120)
         assert len(slots_120) < len(slots_30)
         assert len(slots_120) > 0
 
     def test_duracion_120_base_slots_have_30min_step(self):
-        monday = date(2026, 3, 23)
-        slots = get_base_slots_for_day(monday, duracion_min=120)
+        tuesday = date(2026, 3, 24)
+        slots = get_base_slots_for_day(tuesday, duracion_min=120)
         assert len(slots) == 10
         assert slots[0] == "10:00"
         assert slots[1] == "10:30"
-        assert slots[5] == "16:00"
-        assert slots[6] == "16:30"
+        assert slots[5] == "17:00"
+        assert slots[6] == "17:30"
 
 
 # ── slot_to_datetime ──────────────────────────────────────────────────────────

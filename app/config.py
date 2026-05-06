@@ -22,11 +22,10 @@ TIMEZONE = "Europe/Madrid"
 
 # Schedule
 HORARIO_BASE = {
-    0: [("10:00", "14:00"), ("16:00", "20:00")],  # Monday
-    1: [("10:00", "14:00"), ("16:00", "20:00")],
-    2: [("10:00", "14:00"), ("16:00", "20:00")],
-    3: [("10:00", "14:00"), ("16:00", "20:00")],
-    4: [("10:00", "14:00"), ("16:00", "20:00")],  # Friday
+    1: [("10:00", "14:00"), ("17:00", "21:00")],
+    2: [("10:00", "14:00"), ("17:00", "21:00")],
+    3: [("10:00", "14:00"), ("17:00", "21:00")],
+    4: [("10:00", "14:00"), ("17:00", "21:00")],  # Friday
     5: [("10:00", "14:00")],                       # Saturday
 }
 
@@ -34,7 +33,7 @@ HORARIO_BASE = {
 SERVICIOS = {
     "corte":       {"nombre": "Corte de pelo",        "precio": 10,  "duracion_min": 30},
     "corte_barba": {"nombre": "Corte de pelo + barba", "precio": 12,  "duracion_min": 30},
-    "mechas":      {"nombre": "Mechas",                "precio": 20,  "duracion_min": 120},
+    "mechas":      {"nombre": "Mechas",                "precio": 30,  "duracion_min": 60},
 }
 
 # Appointment settings

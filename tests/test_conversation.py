@@ -120,14 +120,14 @@ class TestBookSelectService:
         assert state.step == conv.BOOK_SELECT_DAY
         assert state.selected_service == SERVICIOS["corte"]
 
-    def test_service_mechas_has_120_min_duration(self, mock_wa, mock_cal):
+    def test_service_mechas_has_60_min_duration(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         mock_cal.get_slots_disponibles.return_value = ["10:00"]
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23)]):
             send(interactive_id="service_mechas")
         state = conv._get(PHONE)
-        assert state.selected_service['duracion_min'] == 120
+        assert state.selected_service['duracion_min'] == 60
 
     def test_invalid_button_resets_menu(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -208,8 +208,8 @@ class TestBookSelectDay:
         duracion = kwargs.get('duracion_min', args[1] if len(args) > 1 else None)
         assert duracion == SERVICIOS["corte"]["duracion_min"]
 
-    def test_mechas_service_uses_120_min_duration(self, mock_wa, mock_cal):
-        """get_slots_disponibles is called with duracion_min=120 for mechas service."""
+    def test_mechas_service_uses_60_min_duration(self, mock_wa, mock_cal):
+        """get_slots_disponibles is called with duracion_min=60 for mechas service."""
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
         state = self.setup_state()
@@ -220,7 +220,7 @@ class TestBookSelectDay:
         assert call_kwargs is not None
         args, kwargs = call_kwargs
         duracion = kwargs.get('duracion_min', args[1] if len(args) > 1 else None)
-        assert duracion == 120
+        assert duracion == 60
 
 
 # ── BOOK_SELECT_PERIOD ──────────────────────────────────────────────────────────
@@ -259,6 +259,12 @@ class TestBookSelectPeriod:
         import app.handlers.conversation as conv
         assert conv._states.get(PHONE) is None
 
+    def test_back_to_day_goes_to_select_day(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        self.setup_state()
+        send(interactive_id="back_to_day")
+        assert conv._get(PHONE).step == conv.BOOK_SELECT_DAY
+
 
 # ── BOOK_SELECT_HOUR ───────────────────────────────────────────────────────────
 
@@ -286,10 +292,10 @@ class TestBookSelectHour:
         import app.handlers.conversation as conv
         assert conv._states.get(PHONE) is None
 
-    def test_change_day_goes_to_select_day(self, mock_wa, mock_cal):
+    def test_back_to_day_goes_to_select_day(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         self.setup_state()
-        send(interactive_id="change_day")
+        send(interactive_id="back_to_day")
         assert conv._get(PHONE).step == conv.BOOK_SELECT_DAY
 
     def test_malformed_hour_id_resets_menu(self, mock_wa, mock_cal):
@@ -298,7 +304,7 @@ class TestBookSelectHour:
         import app.handlers.conversation as conv
         assert conv._states.get(PHONE) is None
 
-    def test_change_period_goes_to_period_select(self, mock_wa, mock_cal):
+    def test_back_to_period_goes_to_period_select(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
         state.step = conv.BOOK_SELECT_HOUR
@@ -306,7 +312,7 @@ class TestBookSelectHour:
         state.all_day_slots = ["10:00", "10:30", "16:00", "16:30"]
         state.available_slots = ["10:00", "10:30"]
         state.available_days = [date(2026, 3, 23)]
-        send(interactive_id="change_period")
+        send(interactive_id="back_to_period")
         assert conv._get(PHONE).step == conv.BOOK_SELECT_PERIOD
 
 

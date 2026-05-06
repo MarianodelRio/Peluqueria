@@ -100,7 +100,7 @@ class TestBuildPeriodSelect:
         ids = {b["reply"]["id"] for b in _buttons(msg)}
         assert "period_morning" in ids
         assert "period_afternoon" in ids
-        assert "back_to_menu" in ids
+        assert "back_to_day" in ids
 
 
 # ── build_days_list ─────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ class TestBuildHoursList:
     def test_rows_include_slots_plus_nav(self):
         slots = ["10:00", "10:30", "11:00"]
         rows = _all_rows(build_hours_list(date(2026, 3, 23), slots))
-        assert len(rows) == 5   # 3 slots + change_day + back
+        assert len(rows) == 4   # 3 slots + back_to_day
 
     def test_slot_row_id_format(self):
         rows = _all_rows(build_hours_list(date(2026, 3, 23), ["10:00"]))
@@ -272,26 +272,28 @@ class TestBuildBackToMenuMessage:
         assert msg["interactive"]["body"]["text"] == body_text
 
 
-# ── build_hours_list with show_change_period ────────────────────────────────────
+# ── build_hours_list with came_from_period ──────────────────────────────────────
 
-class TestBuildHoursListShowChangePeriod:
-    def test_7_slots_show_change_period_true_yields_10_rows(self):
-        slots = [f"10:{m:02d}" for m in range(0, 210, 30)][:7]  # 7 slots
-        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, show_change_period=True))
+class TestBuildHoursListCameFromPeriod:
+    def test_9_slots_came_from_period_true_yields_10_rows(self):
+        slots = [f"10:{m:02d}" for m in range(0, 270, 30)][:9]  # 9 slots
+        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, came_from_period=True))
         assert len(rows) == 10
 
-    def test_show_change_period_true_row_ids_include_all_nav(self):
+    def test_came_from_period_true_includes_back_to_period(self):
         slots = ["10:00", "10:30", "11:00"]
-        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, show_change_period=True))
+        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, came_from_period=True))
         row_ids = [r["id"] for r in rows]
-        assert "change_period" in row_ids
-        assert "change_day" in row_ids
-        assert "back_to_menu" in row_ids
-
-    def test_show_change_period_false_does_not_include_change_period(self):
-        slots = ["10:00", "10:30", "11:00"]
-        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, show_change_period=False))
-        row_ids = [r["id"] for r in rows]
+        assert "back_to_period" in row_ids
         assert "change_period" not in row_ids
+        assert "change_day" not in row_ids
+        assert "back_to_menu" not in row_ids
+
+    def test_came_from_period_false_includes_back_to_day(self):
+        slots = ["10:00", "10:30", "11:00"]
+        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, came_from_period=False))
+        row_ids = [r["id"] for r in rows]
+        assert "back_to_day" in row_ids
+        assert "back_to_period" not in row_ids
 
 
