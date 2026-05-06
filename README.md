@@ -16,13 +16,15 @@ Los clientes reservan, consultan y cancelan citas por WhatsApp. El peluquero ges
 
 ### Servicios disponibles
 
-| Servicio | Precio | Duración |
-|----------|--------|----------|
-| Corte de pelo | 10 € | 30 min |
-| Corte de pelo + barba | 12 € | 30 min |
-| Mechas | 30 € | 2 h |
+| Servicio | Precio | Peluquero | Cliente en local |
+|----------|--------|-----------|-----------------|
+| Corte de pelo | 10 € | 30 min | 30 min |
+| Corte de pelo + barba | 12 € | 30 min | 30 min |
+| Mechas | 30 € | 1 h | 3 h |
 
-La duración determina cuántos slots se bloquean tras una reserva y el horario de fin del evento en Google Calendar.
+**Peluquero** = duración del evento en Google Calendar (tiempo activo del peluquero). **Cliente en local** = tiempo total que el cliente permanece en la peluquería.
+
+Mechas: el evento bloquea 1 h en la agenda del peluquero (puede atender otra cita después de esa hora), pero el cliente permanece 3 h en la peluquería. Por eso solo se ofrece reserva de mechas cuando quedan al menos 3 h hasta el cierre.
 
 ### El peluquero (desde Google Calendar)
 - Crea eventos con `Telefono: +34XXXXXXXXX` en la descripción → el sistema envía confirmación automática por WhatsApp

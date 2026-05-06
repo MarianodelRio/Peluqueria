@@ -99,7 +99,7 @@ def _get_day_events(service, d: date) -> List[dict]:
     return events
 
 
-def _get_slots_disponibles_uncached(d: date, duracion_min: int = 30) -> List[str]:
+def _get_slots_disponibles_uncached(d: date, duracion_min: int = 30, presencia_cliente_min: int = 30) -> List[str]:
     """Internal: fetch slots from Google Calendar without cache."""
     service = _get_service()
     events = _get_day_events(service, d)
@@ -125,8 +125,8 @@ def _get_slots_disponibles_uncached(d: date, duracion_min: int = 30) -> List[str
         return []
 
     base_slots = (
-        generate_slots(special_schedule['start'], special_schedule['end'], duracion_min, step_min=CITA_DURACION_MIN)
-        if special_schedule else get_base_slots_for_day(d, duracion_min)
+        generate_slots(special_schedule['start'], special_schedule['end'], presencia_cliente_min, step_min=CITA_DURACION_MIN)
+        if special_schedule else get_base_slots_for_day(d, presencia_cliente_min)
     )
 
     if not base_slots:
@@ -160,8 +160,8 @@ _slot_cache: dict[str, tuple[list, float]] = {}
 _slot_cache_lock = threading.Lock()
 
 
-def _slot_cache_key(d: date, duracion_min: int = 30) -> str:
-    return f"{d.isoformat()}_{duracion_min}"
+def _slot_cache_key(d: date, duracion_min: int = 30, presencia_cliente_min: int = 30) -> str:
+    return f"{d.isoformat()}_{duracion_min}_{presencia_cliente_min}"
 
 
 def _invalidate_slot_cache(d: date) -> None:
@@ -173,14 +173,15 @@ def _invalidate_slot_cache(d: date) -> None:
             _slot_cache.pop(k, None)
 
 
-def get_slots_disponibles(d: date, bypass_cache: bool = False, duracion_min: int = 30) -> List[str]:
+def get_slots_disponibles(d: date, bypass_cache: bool = False, duracion_min: int = 30, presencia_cliente_min: int = 30) -> List[str]:
     """
     Returns available slots for a given date.
     bypass_cache=True skips cache and always fetches live data (used during booking).
-    duracion_min: service duration in minutes (affects which slots fit in the schedule).
+    duracion_min: calendar event duration in minutes (used for collision detection).
+    presencia_cliente_min: client presence window in minutes (used for slot generation).
     """
     if not bypass_cache:
-        key = _slot_cache_key(d, duracion_min)
+        key = _slot_cache_key(d, duracion_min, presencia_cliente_min)
         now_ts = time.time()
         with _slot_cache_lock:
             if key in _slot_cache:
@@ -189,7 +190,7 @@ def get_slots_disponibles(d: date, bypass_cache: bool = False, duracion_min: int
                     return list(result)
 
     try:
-        result = _get_slots_disponibles_uncached(d, duracion_min=duracion_min)
+        result = _get_slots_disponibles_uncached(d, duracion_min=duracion_min, presencia_cliente_min=presencia_cliente_min)
     except Exception as e:
         logger.error(f"[CAL] Error fetching slots for {d}: {e}", exc_info=True)
         metrics.inc('calendar_errors')
@@ -197,17 +198,17 @@ def get_slots_disponibles(d: date, bypass_cache: bool = False, duracion_min: int
 
     if not bypass_cache:
         with _slot_cache_lock:
-            _slot_cache[_slot_cache_key(d, duracion_min)] = (list(result), time.time())
+            _slot_cache[_slot_cache_key(d, duracion_min, presencia_cliente_min)] = (list(result), time.time())
 
     return result
 
 
-def slot_sigue_libre(d: date, hora: str, duracion_min: int = 30) -> bool:
+def slot_sigue_libre(d: date, hora: str, duracion_min: int = 30, presencia_cliente_min: int = 30) -> bool:
     """
     Re-check if a specific slot is still available.
     Always bypasses cache — called inside the booking lock for anti-race guarantee.
     """
-    available = get_slots_disponibles(d, bypass_cache=True, duracion_min=duracion_min)
+    available = get_slots_disponibles(d, bypass_cache=True, duracion_min=duracion_min, presencia_cliente_min=presencia_cliente_min)
     return hora in available
 
 
@@ -223,8 +224,9 @@ def reservar_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict
         (None, 'error')           — Calendar API failure
     """
     lock = _get_slot_lock(d, hora)
+    presencia = servicio['presencia_cliente_min']
     with lock:
-        if not slot_sigue_libre(d, hora, duracion_min=servicio['duracion_min']):
+        if not slot_sigue_libre(d, hora, duracion_min=servicio['duracion_min'], presencia_cliente_min=presencia):
             return None, 'slot_taken'
         if tiene_cita_ese_dia(telefono, d):
             return None, 'double_booking'

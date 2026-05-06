@@ -69,20 +69,21 @@ Title-based config events — never treated as appointments:
 - Use `_go_to_hour_select()` (not `build_hours_list()` directly) — it applies period splitting to stay under the row limit.
 
 ### Booking atomic flow
-`lock → slot_sigue_libre(d, hora, duracion_min) → tiene_cita_ese_dia() → crear_cita(servicio) → _invalidate_slot_cache(d)`
+`lock → slot_sigue_libre(d, hora, duracion_min, presencia_cliente_min) → tiene_cita_ese_dia() → crear_cita(servicio) → _invalidate_slot_cache(d)`
 
 ### Services
 Three services are defined in `SERVICIOS` in `config.py`. Each affects slot generation and Calendar event duration:
 
-| Key | Display name | Price | `duracion_min` |
-|-----|-------------|-------|---------------|
-| `corte` | Corte de pelo | 10 € | 30 min |
-| `corte_barba` | Corte de pelo + barba | 12 € | 30 min |
-| `mechas` | Mechas | 30 € | 120 min |
+| Key | Display name | Price | `duracion_min` | `presencia_cliente_min` |
+|-----|-------------|-------|---------------|------------------------|
+| `corte` | Corte de pelo | 10 € | 30 min | 30 min |
+| `corte_barba` | Corte de pelo + barba | 12 € | 30 min | 30 min |
+| `mechas` | Mechas | 30 € | 60 min | 180 min |
 
-- `duracion_min` is passed to `get_slots_disponibles` to block slots whose window would overlap an existing event.
-- `duracion_min` sets the event end time when `crear_cita` is called.
-- The slot cache key includes `duracion_min` — calls with different durations are cached separately.
+- `duracion_min` controls the Calendar event duration and the collision window with other events (active barber time).
+- `presencia_cliente_min` controls when the last slot of the day/period is offered (the client must finish before closing).
+- For services without a waiting period, both values are equal.
+- The slot cache key includes both `duracion_min` and `presencia_cliente_min` — calls with different durations or presence windows are cached separately.
 
 ### Scheduler idempotency
 - Reminder job checks `Recordatorio: sí` before sending — skips if already sent.

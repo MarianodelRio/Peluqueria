@@ -166,18 +166,67 @@ class TestGetSlotsDisponibles:
         slots = cal.get_slots_disponibles(tuesday, duracion_min=120)
         assert "10:00" in slots
 
-    def test_cache_key_includes_duracion_min(self, cal_with_service):
-        """Calling get_slots_disponibles with different duracion_min creates separate cache keys."""
+    def test_cache_key_includes_duracion_and_presencia(self, cal_with_service):
+        """Calling get_slots_disponibles with different duracion_min creates separate cache keys (3-part key)."""
         import app.services.calendar as cal_module
         d = date(2026, 3, 24)
-        cal_module.get_slots_disponibles(d, duracion_min=30)
-        cal_module.get_slots_disponibles(d, duracion_min=120)
+        cal_module.get_slots_disponibles(d, duracion_min=30, presencia_cliente_min=30)
+        cal_module.get_slots_disponibles(d, duracion_min=120, presencia_cliente_min=30)
         keys = list(cal_module._slot_cache.keys())
-        key_30 = f"{d.isoformat()}_30"
-        key_120 = f"{d.isoformat()}_120"
+        key_30 = f"{d.isoformat()}_30_30"
+        key_120 = f"{d.isoformat()}_120_30"
         assert key_30 in keys
         assert key_120 in keys
         assert key_30 != key_120
+
+    def test_slot_cache_keys_separate_per_duration_pair(self):
+        """_slot_cache_key returns distinct strings for different (duracion, presencia) pairs."""
+        from app.services.calendar import _slot_cache_key
+        d = date(2026, 3, 24)
+        key_a = _slot_cache_key(d, 60, 180)
+        key_b = _slot_cache_key(d, 30, 30)
+        assert isinstance(key_a, str)
+        assert isinstance(key_b, str)
+        assert key_a != key_b
+
+    def test_get_slots_disponibles_mechas_no_offers_slots_under_3h_to_close(self, cal_with_service):
+        """Slots that would require the client to stay past closing are excluded (presencia_cliente_min=180)."""
+        cal, svc = cal_with_service
+        d = date(2026, 3, 24)  # Tuesday: tarde 17:00-21:00
+        svc.events.return_value.list.return_value.execute.return_value = {"items": []}
+        slots = cal.get_slots_disponibles(d, duracion_min=60, presencia_cliente_min=180)
+        # 17:00+180min=20:00 ≤ 21:00 ✓; 18:00+180min=21:00 ≤ 21:00 ✓; 18:30+180min=21:30 > 21:00 ✗
+        assert "17:00" in slots
+        assert "17:30" in slots
+        assert "18:00" in slots
+        assert "18:30" not in slots
+
+    def test_get_slots_disponibles_mechas_collision_uses_60min_window(self, cal_with_service):
+        """
+        Collision detection uses duracion_min (60), not presencia_cliente_min (180).
+        Event 18:30-19:00 falls inside the presencia window (slot_start + 180 = 20:00)
+        but outside the duracion window (slot_start + 60 = 18:00) for 17:00 and 17:30.
+        If collision used presencia=180, all 3 slots would be blocked (event lies inside [17:00, 20:00)).
+        Since 17:00 and 17:30 are free, collision must be using duracion=60.
+        """
+        cal, svc = cal_with_service
+        d = date(2026, 3, 24)  # Tuesday tarde 17:00-21:00
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [make_gc_event(
+                "evt1", "Cita - Luis",
+                "Nombre: Luis\nTelefono: 34600000002\nEstado: confirmada\nRecordatorio: no",
+                aware(2026, 3, 24, 18, 30), aware(2026, 3, 24, 19, 0)
+            )]
+        }
+        slots = cal.get_slots_disponibles(d, duracion_min=60, presencia_cliente_min=180)
+        # 17:00+60=18:00 < 18:31 (event start with +1min tolerance) → free.
+        # If collision used presencia=180: 17:00+180=20:00 would overlap event → blocked.
+        # The fact that 17:00 is free proves collision uses duracion=60, not presencia.
+        assert "17:00" in slots
+        # 17:30+60=18:30 < 18:31 (1-min tolerance gap) → free. Same load-bearing logic.
+        assert "17:30" in slots
+        # 18:00+60=19:00 → window 18:00-19:00 overlaps event 18:30-19:00 → blocked by collision.
+        assert "18:00" not in slots
 
 
 # ── tiene_cita_ese_dia ─────────────────────────────────────────────────────────

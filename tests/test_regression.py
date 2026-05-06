@@ -355,3 +355,26 @@ class TestBookConfirmNoneGuard:
         state.selected_service = SERVICIOS["corte"]
         send(text="AnaGuard")
         assert conv._states.get(PHONE) is None
+
+
+# ── Config invariant: presencia_cliente_min >= duracion_min ───────────────────
+
+class TestValidateConfigInvariant:
+    def test_validate_config_rejects_presencia_below_duracion(self):
+        """validate_config must raise RuntimeError when presencia_cliente_min < duracion_min."""
+        from unittest.mock import patch
+        from app.config import validate_config
+
+        bad_servicios = {
+            "bad": {"nombre": "X", "precio": 10, "duracion_min": 30, "presencia_cliente_min": 10}
+        }
+        with patch.multiple(
+            "app.config",
+            WHATSAPP_PHONE_NUMBER_ID="x",
+            WHATSAPP_ACCESS_TOKEN="x",
+            WHATSAPP_VERIFY_TOKEN="x",
+            GOOGLE_CALENDAR_ID="x",
+            SERVICIOS=bad_servicios,
+        ):
+            with pytest.raises(RuntimeError, match="presencia_cliente_min"):
+                validate_config()

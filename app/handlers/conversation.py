@@ -253,7 +253,8 @@ def _handle_book_select_service(phone: str, state: ConversationState, value: str
     state.selected_service = SERVICIOS[key]
     days = get_next_days(BOOKING_WINDOW_DAYS)
     available_days = [d for d in days if cal.get_slots_disponibles(
-        d, duracion_min=state.selected_service['duracion_min'])]
+        d, duracion_min=state.selected_service['duracion_min'],
+        presencia_cliente_min=state.selected_service['presencia_cliente_min'])]
     if not available_days:
         wa.send_text_message(phone, msg_sin_slots())
         _to_menu(phone)
@@ -307,7 +308,11 @@ def _handle_book_select_day(phone: str, state: ConversationState, value: str):
         _to_menu(phone)
         return
 
-    slots = cal.get_slots_disponibles(selected_date, duracion_min=state.selected_service['duracion_min'])
+    slots = cal.get_slots_disponibles(
+        selected_date,
+        duracion_min=state.selected_service['duracion_min'],
+        presencia_cliente_min=state.selected_service['presencia_cliente_min'],
+    )
     if not slots:
         wa.send_text_message(phone, msg_sin_slots())
         wa.send_interactive(phone, build_days_list(state.available_days))
@@ -416,7 +421,11 @@ def _handle_book_enter_name(phone: str, state: ConversationState, value: str):
 
     if reason == 'slot_taken':
         logger.warning(f"[CONV] Slot {d} {hora} taken for {phone}")
-        slots = cal.get_slots_disponibles(d, duracion_min=state.selected_service['duracion_min'])
+        slots = cal.get_slots_disponibles(
+            d,
+            duracion_min=state.selected_service['duracion_min'],
+            presencia_cliente_min=state.selected_service['presencia_cliente_min'],
+        )
         if slots:
             wa.send_text_message(phone, msg_slot_no_disponible())
             _go_to_hour_select(phone, state, d, slots)

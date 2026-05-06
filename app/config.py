@@ -29,11 +29,11 @@ HORARIO_BASE = {
     5: [("10:00", "14:00")],                       # Saturday
 }
 
-# Services offered (key → display name, price in EUR, duration in minutes)
+# Services offered (key → display name, price in EUR, calendar event duration, client presence window)
 SERVICIOS = {
-    "corte":       {"nombre": "Corte de pelo",        "precio": 10,  "duracion_min": 30},
-    "corte_barba": {"nombre": "Corte de pelo + barba", "precio": 12,  "duracion_min": 30},
-    "mechas":      {"nombre": "Mechas",                "precio": 30,  "duracion_min": 60},
+    "corte":       {"nombre": "Corte de pelo",        "precio": 10,  "duracion_min": 30, "presencia_cliente_min": 30},
+    "corte_barba": {"nombre": "Corte de pelo + barba", "precio": 12,  "duracion_min": 30, "presencia_cliente_min": 30},
+    "mechas":      {"nombre": "Mechas",                "precio": 30,  "duracion_min": 60, "presencia_cliente_min": 180},
 }
 
 # Appointment settings
@@ -63,6 +63,16 @@ def validate_config() -> None:
     missing = [name for name, val in critical.items() if not val]
     if missing:
         raise RuntimeError(f"[CONFIG] Missing required env vars: {', '.join(missing)}")
+    for svc_key, svc in SERVICIOS.items():
+        if svc['duracion_min'] <= 0:
+            raise RuntimeError(f"[CONFIG] SERVICIOS['{svc_key}']['duracion_min'] must be > 0")
+        if svc['presencia_cliente_min'] <= 0:
+            raise RuntimeError(f"[CONFIG] SERVICIOS['{svc_key}']['presencia_cliente_min'] must be > 0")
+        if svc['presencia_cliente_min'] < svc['duracion_min']:
+            raise RuntimeError(
+                f"[CONFIG] SERVICIOS['{svc_key}']: presencia_cliente_min ({svc['presencia_cliente_min']}) "
+                f"must be >= duracion_min ({svc['duracion_min']})"
+            )
     if not WHATSAPP_APP_SECRET:
         _log.warning(
             "[CONFIG] WHATSAPP_APP_SECRET not set — "

@@ -68,14 +68,33 @@ class TestGenerateSlots:
 
     def test_duracion_120_produces_correct_slots(self):
         # 10:00-14:00 with 120-min window, 30-min step → slots at 10:00, 10:30, 11:00, 11:30, 12:00
-        slots = generate_slots("10:00", "14:00", duracion_min=120)
+        slots = generate_slots("10:00", "14:00", presencia_cliente_min=120)
         assert slots == ["10:00", "10:30", "11:00", "11:30", "12:00"]
 
     def test_default_duracion_backward_compat(self):
         # No third arg → same as before (30-min slots)
         slots_default = generate_slots("10:00", "14:00")
-        slots_explicit = generate_slots("10:00", "14:00", duracion_min=30)
+        slots_explicit = generate_slots("10:00", "14:00", presencia_cliente_min=30)
         assert slots_default == slots_explicit
+
+    def test_generate_slots_last_slot_respects_presencia_cliente(self):
+        # 17:00-21:00, presencia=180 min, step=30 min
+        # 17:00+180=1200≤1260 ✓, 17:30+180=1230≤1260 ✓, 18:00+180=1260≤1260 ✓, 18:30+180=1290>1260 ✗
+        result = generate_slots("17:00", "21:00", 180, step_min=30)
+        assert result == ["17:00", "17:30", "18:00"]
+        assert "19:00" not in result
+
+    def test_generate_slots_morning_period_mechas(self):
+        # 10:00-14:00, presencia=180 min → 10:00, 10:30, 11:00 only
+        # 11:00+180=14:00 ✓; 11:30+180=14:30>14:00 ✗
+        result = generate_slots("10:00", "14:00", 180, step_min=30)
+        assert result == ["10:00", "10:30", "11:00"]
+
+    def test_generate_slots_corte_unchanged_when_presencia_equals_duracion(self):
+        # Regression: default (30) must equal explicit presencia_cliente_min=30
+        default_result = generate_slots("10:00", "14:00")
+        explicit_result = generate_slots("10:00", "14:00", presencia_cliente_min=30)
+        assert default_result == explicit_result
 
 
 # ── get_base_slots_for_day ────────────────────────────────────────────────────
@@ -103,13 +122,13 @@ class TestGetBaseSlotsForDay:
     def test_duracion_120_returns_fewer_slots_than_default(self):
         tuesday = date(2026, 3, 24)
         slots_30 = get_base_slots_for_day(tuesday)
-        slots_120 = get_base_slots_for_day(tuesday, duracion_min=120)
+        slots_120 = get_base_slots_for_day(tuesday, presencia_cliente_min=120)
         assert len(slots_120) < len(slots_30)
         assert len(slots_120) > 0
 
     def test_duracion_120_base_slots_have_30min_step(self):
         tuesday = date(2026, 3, 24)
-        slots = get_base_slots_for_day(tuesday, duracion_min=120)
+        slots = get_base_slots_for_day(tuesday, presencia_cliente_min=120)
         assert len(slots) == 10
         assert slots[0] == "10:00"
         assert slots[1] == "10:30"

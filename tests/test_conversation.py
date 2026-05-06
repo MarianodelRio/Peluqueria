@@ -527,6 +527,50 @@ class TestCleanExpiredStates:
         assert "new_phone" in conv._states
 
 
+# ── Mechas conversation flow ───────────────────────────────────────────────────
+
+class TestMechasConversationFlow:
+    """Validate that the state machine stores calendar-layer slots correctly for mechas."""
+
+    def _setup_day_state(self, servicio_key):
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_DAY
+        state.selected_service = SERVICIOS[servicio_key]
+        state.available_days = [date(2026, 3, 24)]
+        return state
+
+    def test_book_mechas_afternoon_slots_respect_presencia(self, mock_wa, mock_cal):
+        """After selecting a day for mechas, only the 3 pre-filtered slots are stored."""
+        import app.handlers.conversation as conv
+        self._setup_day_state("mechas")
+        # Calendar layer already applied presencia_cliente_min filtering — only 3 slots remain
+        mock_cal.get_slots_disponibles.return_value = ["17:00", "17:30", "18:00"]
+        send(interactive_id="day_2026-03-24")
+        state = conv._get(PHONE)
+        # Only afternoon slots → single period → goes directly to BOOK_SELECT_HOUR
+        assert state.step == conv.BOOK_SELECT_HOUR
+        assert "17:00" in state.available_slots
+        assert "17:30" in state.available_slots
+        assert "18:00" in state.available_slots
+        assert len(state.available_slots) == 3
+
+    def test_book_corte_afternoon_offers_more_slots(self, mock_wa, mock_cal):
+        """After selecting a day for corte (no presencia restriction), all 8 slots are stored."""
+        import app.handlers.conversation as conv
+        self._setup_day_state("corte")
+        mock_cal.get_slots_disponibles.return_value = [
+            "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30"
+        ]
+        send(interactive_id="day_2026-03-24")
+        state = conv._get(PHONE)
+        # Only afternoon slots → single period → goes directly to BOOK_SELECT_HOUR
+        assert state.step == conv.BOOK_SELECT_HOUR
+        assert len(state.available_slots) == 8
+        assert "20:30" in state.available_slots
+
+
 # ── Concurrency: per-phone lock ────────────────────────────────────────────────
 
 class TestPerPhoneLock:
