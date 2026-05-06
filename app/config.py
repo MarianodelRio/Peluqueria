@@ -86,6 +86,7 @@ WHATSAPP_REMINDER_TEMPLATE = "recordatorio_cita"
 WHATSAPP_CONFIRMATION_TEMPLATE = "confirmacion_cita"
 WHATSAPP_TEMPLATE_LANG = "es"
 INTERACTIVE_FOOTER = "_Cualquier texto te llevará de vuelta al menú principal_"
+CONTACT_PHONE = "+34 676 27 38 00"
 
 # HTTP / API timeouts
 GOOGLE_API_TIMEOUT_SEC = 30

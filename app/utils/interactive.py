@@ -9,7 +9,7 @@ WhatsApp limits:
 """
 from datetime import date
 from typing import List, Optional
-from app.config import INTERACTIVE_FOOTER
+from app.config import INTERACTIVE_FOOTER, CONTACT_PHONE
 from app.utils.slots import format_date_es
 
 
@@ -73,7 +73,7 @@ def build_main_menu() -> dict:
     """Main menu with 3 reply buttons."""
     return _interactive_buttons(
         header="✂️ DM BARBER SHOP",
-        body="💈 ¡Bienvenido!\n¿En qué podemos ayudarte hoy?",
+        body="💈 ¡Bienvenido!\n¿En qué podemos ayudarte hoy?\n\n📞 Para otras consultas, llámanos al " + CONTACT_PHONE,
         buttons=[
             _button("menu_book",   "📅 Pedir cita"),
             _button("menu_view",   "📋 Mis citas"),
