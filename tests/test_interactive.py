@@ -5,6 +5,7 @@ Validates payload structure, WhatsApp limits and edge cases.
 """
 import pytest
 from datetime import date
+from unittest.mock import patch
 from app.utils.interactive import (
     _trunc,
     build_main_menu,
@@ -77,6 +78,59 @@ class TestBuildMainMenu:
     def test_footer_present(self):
         msg = build_main_menu()
         assert "footer" in msg["interactive"]
+
+    def test_evento_activo_false_still_three_buttons(self):
+        """With EVENTO_ACTIVO=False, menu is unchanged (3 buttons)."""
+        with patch("app.utils.interactive.EVENTO_ACTIVO", False):
+            msg = build_main_menu()
+        assert msg["interactive"]["type"] == "button"
+        assert len(_buttons(msg)) == 3
+
+
+# ── build_main_menu with event active ──────────────────────────────────────────
+
+class TestBuildMainMenuWithEvento:
+    def test_evento_activo_true_produces_list(self):
+        """When EVENTO_ACTIVO=True, menu is a list with 4 rows."""
+        with patch("app.utils.interactive.EVENTO_ACTIVO", True), \
+             patch("app.utils.interactive.EVENTO_NOMBRE", "Navidad"):
+            msg = build_main_menu()
+        assert msg["interactive"]["type"] == "list"
+
+    def test_evento_activo_true_has_four_rows(self):
+        with patch("app.utils.interactive.EVENTO_ACTIVO", True), \
+             patch("app.utils.interactive.EVENTO_NOMBRE", "Navidad"):
+            msg = build_main_menu()
+        rows = _all_rows(msg)
+        assert len(rows) == 4
+
+    def test_menu_book_event_row_present(self):
+        with patch("app.utils.interactive.EVENTO_ACTIVO", True), \
+             patch("app.utils.interactive.EVENTO_NOMBRE", "Navidad"):
+            msg = build_main_menu()
+        ids = [r["id"] for r in _all_rows(msg)]
+        assert "menu_book_event" in ids
+
+    def test_event_row_title_includes_nombre(self):
+        with patch("app.utils.interactive.EVENTO_ACTIVO", True), \
+             patch("app.utils.interactive.EVENTO_NOMBRE", "Navidad"):
+            msg = build_main_menu()
+        rows = {r["id"]: r for r in _all_rows(msg)}
+        assert "Navidad" in rows["menu_book_event"]["title"]
+
+    def test_event_row_title_truncated_to_24_chars(self):
+        long_name = "A" * 30
+        with patch("app.utils.interactive.EVENTO_ACTIVO", True), \
+             patch("app.utils.interactive.EVENTO_NOMBRE", long_name):
+            msg = build_main_menu()
+        rows = {r["id"]: r for r in _all_rows(msg)}
+        assert len(rows["menu_book_event"]["title"]) <= 24
+
+    def test_list_button_label_is_ver_opciones(self):
+        with patch("app.utils.interactive.EVENTO_ACTIVO", True), \
+             patch("app.utils.interactive.EVENTO_NOMBRE", "Navidad"):
+            msg = build_main_menu()
+        assert msg["interactive"]["action"]["button"] == "Ver opciones"
 
 
 # ── build_period_select ─────────────────────────────────────────────────────────

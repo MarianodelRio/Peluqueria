@@ -16,6 +16,8 @@ from app.utils.slots import (
     filter_available_slots,
     get_next_days,
     format_date_es,
+    get_event_days,
+    get_event_slots_for_day,
 )
 from app.config import HORARIO_BASE, CITA_DURACION_MIN
 
@@ -292,3 +294,69 @@ class TestFormatDateEs:
         # The callers use .capitalize() on the result
         result = format_date_es(date(2026, 3, 23)).capitalize()
         assert result[0].isupper()
+
+
+# ── TestEventSlots ────────────────────────────────────────────────────────────
+
+class TestEventSlots:
+    """Tests for get_event_days() and get_event_slots_for_day()."""
+
+    def _patch_evento(self, dias: dict):
+        """Helper: patch EVENTO_DIAS in slots module with the given dict."""
+        return patch("app.utils.slots.EVENTO_DIAS", dias)
+
+    def test_get_event_days_returns_future_dates_sorted(self):
+        today = TZ.localize(__import__("datetime").datetime(2026, 6, 1)).date()
+        dias = {
+            "2026-06-10": [["10:00", "14:00"]],
+            "2026-06-05": [["10:00", "14:00"]],
+            "2026-06-20": [["10:00", "14:00"]],
+        }
+        with self._patch_evento(dias), \
+             patch("app.utils.slots.datetime") as mock_dt:
+            mock_dt.now.return_value = TZ.localize(__import__("datetime").datetime(2026, 6, 1))
+            result = get_event_days()
+        assert result == [date(2026, 6, 5), date(2026, 6, 10), date(2026, 6, 20)]
+
+    def test_get_event_days_excludes_past_dates(self):
+        dias = {
+            "2020-01-01": [["10:00", "14:00"]],
+            "2099-12-31": [["10:00", "14:00"]],
+        }
+        with self._patch_evento(dias):
+            result = get_event_days()
+        # Only future date should appear
+        assert date(2020, 1, 1) not in result
+        assert date(2099, 12, 31) in result
+
+    def test_get_event_days_empty_when_no_dias(self):
+        with self._patch_evento({}):
+            result = get_event_days()
+        assert result == []
+
+    def test_get_event_slots_for_day_returns_correct_slots(self):
+        dias = {"2099-12-25": [["10:00", "12:00"]]}
+        d = date(2099, 12, 25)
+        with self._patch_evento(dias):
+            slots = get_event_slots_for_day(d)
+        # 10:00-12:00 with step 30 and presencia 30 → 10:00, 10:30, 11:00, 11:30
+        assert "10:00" in slots
+        assert "11:30" in slots
+        assert "12:00" not in slots
+
+    def test_get_event_slots_for_day_returns_empty_for_unlisted_date(self):
+        dias = {"2099-12-25": [["10:00", "12:00"]]}
+        d = date(2099, 12, 26)
+        with self._patch_evento(dias):
+            slots = get_event_slots_for_day(d)
+        assert slots == []
+
+    def test_get_event_slots_for_day_respects_presencia_cliente_min(self):
+        dias = {"2099-12-25": [["10:00", "14:00"]]}
+        d = date(2099, 12, 25)
+        with self._patch_evento(dias):
+            slots = get_event_slots_for_day(d, presencia_cliente_min=180)
+        # 10:00+180=13:00 ≤ 14:00 ✓; 11:00+180=14:00 ≤ 14:00 ✓; 11:30+180=14:30 > 14:00 ✗
+        assert "10:00" in slots
+        assert "11:00" in slots
+        assert "11:30" not in slots

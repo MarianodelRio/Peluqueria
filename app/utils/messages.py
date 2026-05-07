@@ -33,3 +33,10 @@ def msg_slot_no_disponible() -> str:
 
 def msg_error_creando_cita() -> str:
     return "Ha ocurrido un error al crear tu cita. Inténtalo de nuevo."
+
+
+def msg_evento_sin_dias() -> str:
+    return (
+        "No hay fechas disponibles para el evento en este momento. "
+        "Puedes volver al menú cuando quieras."
+    )

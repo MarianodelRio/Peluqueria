@@ -685,3 +685,118 @@ class TestBookSelectServiceRangeFetch:
 
         # range should still be called only once (from the service step)
         assert mock_cal.get_slots_disponibles_range.call_count == 1
+
+
+# ── Event booking flow ────────────────────────────────────────────────────────
+
+class TestEventBookingFlow:
+    """Tests for the special-event booking path (is_event=True)."""
+
+    def test_menu_book_event_inactive_shows_menu(self, mock_wa, mock_cal):
+        """menu_book_event is a no-op when EVENTO_ACTIVO is False — stays at MENU."""
+        import app.handlers.conversation as conv
+        with patch("app.handlers.conversation.EVENTO_ACTIVO", False):
+            send(interactive_id="menu_book_event")
+        mock_wa.send_interactive.assert_called()
+        # State stays at MENU (not advanced to BOOK_SELECT_SERVICE)
+        state = conv._get(PHONE)
+        assert state.step == conv.MENU
+
+    def test_menu_book_event_active_sets_is_event_true(self, mock_wa, mock_cal):
+        """menu_book_event when active sets is_event=True and goes to BOOK_SELECT_SERVICE."""
+        import app.handlers.conversation as conv
+        with patch("app.handlers.conversation.EVENTO_ACTIVO", True):
+            send(interactive_id="menu_book_event")
+        state = conv._get(PHONE)
+        assert state.is_event is True
+        assert state.step == conv.BOOK_SELECT_SERVICE
+
+    def test_is_event_false_by_default(self, mock_wa, mock_cal):
+        """Normal menu_book path leaves is_event=False."""
+        import app.handlers.conversation as conv
+        send(interactive_id="menu_book")
+        state = conv._get(PHONE)
+        assert state.is_event is False
+
+    def test_event_service_select_uses_get_event_days(self, mock_wa, mock_cal):
+        """When is_event, _handle_book_select_service calls get_event_days (not get_next_days)."""
+        import app.handlers.conversation as conv
+        event_day = date(2099, 12, 25)
+        mock_cal.get_slots_disponibles_evento_range.return_value = {event_day: ["10:00", "11:00"]}
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_SERVICE
+        state.is_event = True
+
+        with patch("app.handlers.conversation.get_event_days", return_value=[event_day]) as mock_ged, \
+             patch("app.handlers.conversation.get_next_days") as mock_gnd:
+            send(interactive_id="service_corte")
+
+        mock_ged.assert_called_once()
+        mock_gnd.assert_not_called()
+
+    def test_event_service_select_no_days_shows_event_message(self, mock_wa, mock_cal):
+        """When is_event and no event days exist, show msg_evento_sin_dias."""
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_SERVICE
+        state.is_event = True
+
+        with patch("app.handlers.conversation.get_event_days", return_value=[]):
+            send(interactive_id="service_corte")
+
+        mock_wa.send_text_message.assert_called()
+        text_call = mock_wa.send_text_message.call_args[0][1]
+        assert "evento" in text_call.lower()
+
+    def test_event_select_day_calls_get_slots_disponibles_evento(self, mock_wa, mock_cal):
+        """When is_event, selecting a day calls get_slots_disponibles_evento, not get_slots_disponibles."""
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        event_day = date(2099, 12, 25)
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_DAY
+        state.is_event = True
+        state.selected_service = SERVICIOS["corte"]
+        state.available_days = [event_day]
+
+        mock_cal.get_slots_disponibles_evento.return_value = ["10:00", "10:30"]
+        send(interactive_id=f"day_{event_day.isoformat()}")
+
+        mock_cal.get_slots_disponibles_evento.assert_called_once()
+        mock_cal.get_slots_disponibles.assert_not_called()
+
+    def test_event_flow_slot_taken_uses_get_slots_disponibles_evento(self, mock_wa, mock_cal):
+        """When is_event and slot_taken, alternatives fetched via get_slots_disponibles_evento."""
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        event_day = date(2099, 12, 25)
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_ENTER_NAME
+        state.is_event = True
+        state.selected_service = SERVICIOS["corte"]
+        state.selected_date = event_day
+        state.selected_slot = "10:00"
+        state.available_days = [event_day]
+        state.available_slots = ["10:00", "10:30"]
+
+        mock_cal.reservar_cita.return_value = (None, "slot_taken")
+        mock_cal.get_slots_disponibles_evento.return_value = ["10:30", "11:00"]
+
+        send(text="Ana García")
+
+        mock_cal.get_slots_disponibles_evento.assert_called_once()
+        mock_cal.get_slots_disponibles.assert_not_called()
+
+    def test_to_menu_resets_is_event(self, mock_wa, mock_cal):
+        """After _to_menu, is_event is gone (state is cleared by _clear)."""
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.is_event = True
+        state.step = conv.BOOK_SELECT_DAY
+        send(interactive_id="back_to_menu")
+        # State was cleared; new state would have default is_event=False
+        new_state = conv._get(PHONE)
+        assert new_state.is_event is False

@@ -8,7 +8,7 @@ from typing import List
 import pytz
 import logging
 
-from app.config import HORARIO_BASE, CITA_DURACION_MIN, TIMEZONE
+from app.config import HORARIO_BASE, CITA_DURACION_MIN, TIMEZONE, EVENTO_DIAS
 
 logger = logging.getLogger(__name__)
 TZ = pytz.timezone(TIMEZONE)
@@ -112,3 +112,39 @@ def format_date_es(d: date) -> str:
     meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
              'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
     return f"{dias[d.weekday()]} {d.day} de {meses[d.month - 1]}"
+
+
+def get_event_days() -> List[date]:
+    """
+    Return event dates from EVENTO_DIAS that are >= today, sorted ascending.
+    Returns [] when EVENTO_ACTIVO is False (EVENTO_DIAS is then an empty dict).
+    """
+    today = datetime.now(TZ).date()
+    days = []
+    for iso_key in EVENTO_DIAS:
+        try:
+            d = date.fromisoformat(str(iso_key))
+        except ValueError:
+            logger.warning(f"[SLOTS] get_event_days: invalid date key '{iso_key}' skipped")
+            continue
+        if d >= today:
+            days.append(d)
+    days.sort()
+    return days
+
+
+def get_event_slots_for_day(d: date, presencia_cliente_min: int = 30) -> List[str]:
+    """
+    Return base slots for a special-event day.
+    Looks up the ISO date string in EVENTO_DIAS and generates slots for each range.
+    Returns [] if the date is not in EVENTO_DIAS.
+    """
+    key = d.isoformat()
+    ranges = EVENTO_DIAS.get(key)
+    if not ranges:
+        return []
+    slots: List[str] = []
+    for rng in ranges:
+        start_str, end_str = rng[0], rng[1]
+        slots.extend(generate_slots(start_str, end_str, presencia_cliente_min, step_min=CITA_DURACION_MIN))
+    return slots

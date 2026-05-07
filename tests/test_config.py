@@ -302,3 +302,97 @@ class TestRule8Envios:
         p = _write_yaml(tmp_path, data)
         with pytest.raises(RuntimeError, match="Rule 8"):
             _load_and_validate_yaml(str(p))
+
+
+# ── Rule 9: evento block ──────────────────────────────────────────────────────
+
+class TestRule9Evento:
+    """Rule 9: evento block is optional; deep validation only when activo is True."""
+
+    def test_evento_absent_passes(self, tmp_path):
+        """No evento key at all is valid."""
+        data = _minimal_valid()
+        p = _write_yaml(tmp_path, data)
+        cfg = _load_and_validate_yaml(str(p))
+        assert "evento" not in cfg or cfg.get("evento") is None
+
+    def test_evento_activo_false_skips_deep_validation(self, tmp_path):
+        """activo: false with no other fields passes without error."""
+        data = _minimal_valid()
+        data["evento"] = {"activo": False}
+        p = _write_yaml(tmp_path, data)
+        cfg = _load_and_validate_yaml(str(p))
+        assert cfg["evento"]["activo"] is False
+
+    def test_valid_active_evento_passes(self, tmp_path):
+        """activo: true with valid nombre and dias passes."""
+        data = _minimal_valid()
+        data["evento"] = {
+            "activo": True,
+            "nombre": "Navidad",
+            "dias": {"2099-12-25": [["10:00", "14:00"]]},
+        }
+        p = _write_yaml(tmp_path, data)
+        cfg = _load_and_validate_yaml(str(p))
+        assert cfg["evento"]["activo"] is True
+
+    def test_missing_nombre_raises(self, tmp_path):
+        data = _minimal_valid()
+        data["evento"] = {
+            "activo": True,
+            "dias": {"2099-12-25": [["10:00", "14:00"]]},
+        }
+        p = _write_yaml(tmp_path, data)
+        with pytest.raises(RuntimeError, match="Rule 9"):
+            _load_and_validate_yaml(str(p))
+
+    def test_empty_nombre_raises(self, tmp_path):
+        data = _minimal_valid()
+        data["evento"] = {
+            "activo": True,
+            "nombre": "   ",
+            "dias": {"2099-12-25": [["10:00", "14:00"]]},
+        }
+        p = _write_yaml(tmp_path, data)
+        with pytest.raises(RuntimeError, match="Rule 9"):
+            _load_and_validate_yaml(str(p))
+
+    def test_missing_dias_raises(self, tmp_path):
+        data = _minimal_valid()
+        data["evento"] = {"activo": True, "nombre": "Navidad"}
+        p = _write_yaml(tmp_path, data)
+        with pytest.raises(RuntimeError, match="Rule 9"):
+            _load_and_validate_yaml(str(p))
+
+    def test_invalid_date_key_raises(self, tmp_path):
+        data = _minimal_valid()
+        data["evento"] = {
+            "activo": True,
+            "nombre": "Navidad",
+            "dias": {"not-a-date": [["10:00", "14:00"]]},
+        }
+        p = _write_yaml(tmp_path, data)
+        with pytest.raises(RuntimeError, match="Rule 9"):
+            _load_and_validate_yaml(str(p))
+
+    def test_fin_before_inicio_raises(self, tmp_path):
+        data = _minimal_valid()
+        data["evento"] = {
+            "activo": True,
+            "nombre": "Navidad",
+            "dias": {"2099-12-25": [["14:00", "10:00"]]},
+        }
+        p = _write_yaml(tmp_path, data)
+        with pytest.raises(RuntimeError, match="Rule 9"):
+            _load_and_validate_yaml(str(p))
+
+    def test_overlapping_ranges_raises(self, tmp_path):
+        data = _minimal_valid()
+        data["evento"] = {
+            "activo": True,
+            "nombre": "Navidad",
+            "dias": {"2099-12-25": [["10:00", "14:00"], ["13:00", "18:00"]]},
+        }
+        p = _write_yaml(tmp_path, data)
+        with pytest.raises(RuntimeError, match="Rule 9"):
+            _load_and_validate_yaml(str(p))

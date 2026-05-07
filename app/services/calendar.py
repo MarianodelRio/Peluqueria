@@ -18,7 +18,7 @@ from app.config import (
     GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_ID, TIMEZONE, CITA_DURACION_MIN,
     GOOGLE_API_TIMEOUT_SEC, SLOT_CACHE_TTL_SEC, CITAS_CACHE_TTL_SEC, SERVICIOS,
     LOOKAHEAD_CITAS_CLIENTE_DIAS, LOOKAHEAD_CITAS_MANUALES_DIAS,
-    RECORDATORIO_DESDE_H, RECORDATORIO_HASTA_H,
+    RECORDATORIO_DESDE_H, RECORDATORIO_HASTA_H, EVENTO_DIAS,
 )
 from app.utils import metrics
 from app.utils.security import mask_phone
@@ -28,6 +28,7 @@ from app.utils.parser import (
 )
 from app.utils.slots import (
     get_base_slots_for_day, generate_slots, filter_available_slots, slot_to_datetime,
+    get_event_slots_for_day,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,11 +105,23 @@ def _get_day_events(service, d: date) -> List[dict]:
     return events
 
 
-def _compute_slots(d: date, events: List[dict], duracion_min: int = 30, presencia_cliente_min: int = 30) -> List[str]:
+def _compute_slots(
+    d: date,
+    events: List[dict],
+    duracion_min: int = 30,
+    presencia_cliente_min: int = 30,
+    event_horario: Optional[List[tuple]] = None,
+) -> List[str]:
     """
     Pure function: compute available slots for a day given pre-fetched events.
     Does NOT include the today-filter (caller handles that).
     events: list of dicts in the same format as _get_day_events returns.
+
+    Priority chain for base slots:
+      [CFG] CERRADO / VACACIONES  → []  (hard close, highest priority)
+      [CFG] HORARIO HH:MM-HH:MM  → special_schedule overrides everything
+      event_horario               → event-specific ranges (only if no special_schedule)
+      HORARIO_BASE / weekday      → normal fallback
     """
     is_closed = False
     special_schedule = None
@@ -130,10 +143,20 @@ def _compute_slots(d: date, events: List[dict], duracion_min: int = 30, presenci
     if is_closed:
         return []
 
-    base_slots = (
-        generate_slots(special_schedule['start'], special_schedule['end'], presencia_cliente_min, step_min=CITA_DURACION_MIN)
-        if special_schedule else get_base_slots_for_day(d, presencia_cliente_min)
-    )
+    if special_schedule:
+        base_slots = generate_slots(
+            special_schedule['start'], special_schedule['end'],
+            presencia_cliente_min, step_min=CITA_DURACION_MIN,
+        )
+    elif event_horario is not None:
+        # event_horario is a list of (start_str, end_str) tuples
+        base_slots = []
+        for start_str, end_str in event_horario:
+            base_slots.extend(
+                generate_slots(start_str, end_str, presencia_cliente_min, step_min=CITA_DURACION_MIN)
+            )
+    else:
+        base_slots = get_base_slots_for_day(d, presencia_cliente_min)
 
     if not base_slots:
         return []
@@ -189,10 +212,17 @@ def _slot_cache_key(d: date, duracion_min: int = 30, presencia_cliente_min: int 
 
 
 def _invalidate_slot_cache(d: date) -> None:
-    """Remove all cache entries for a given date (all durations)."""
-    prefix = d.isoformat()
+    """Remove all cache entries for a given date (all durations), including evt_* prefixed keys."""
+    date_str = d.isoformat()
+    # Normal keys: "YYYY-MM-DD_30_30", "YYYY-MM-DD_60_180", ...
+    # Event keys:  "evt_YYYY-MM-DD_30_30", ...
+    prefix_normal = date_str
+    prefix_event = f"evt_{date_str}"
     with _slot_cache_lock:
-        keys_to_delete = [k for k in _slot_cache if k.startswith(prefix)]
+        keys_to_delete = [
+            k for k in _slot_cache
+            if k.startswith(prefix_normal) or k.startswith(prefix_event)
+        ]
         for k in keys_to_delete:
             _slot_cache.pop(k, None)
 
@@ -363,6 +393,125 @@ def get_slots_disponibles_range(
         return result
     except Exception as e:
         logger.error(f"[CAL] Error in get_slots_disponibles_range({start}, {end}): {e}", exc_info=True)
+        metrics.inc('calendar_errors')
+        return {}
+
+
+def _get_slots_evento_uncached(d: date, duracion_min: int = 30, presencia_cliente_min: int = 30) -> List[str]:
+    """
+    Internal: fetch slots for a special-event day without cache.
+    Uses event_horario from EVENTO_DIAS for base slot generation.
+    Today-filter applied by caller.
+    """
+    # Build event_horario from EVENTO_DIAS
+    key = d.isoformat()
+    raw_ranges = EVENTO_DIAS.get(key, [])
+    event_horario = [(r[0], r[1]) for r in raw_ranges] if raw_ranges else []
+    if not event_horario:
+        return []
+    service = _get_service()
+    events = _get_day_events(service, d)
+    return _compute_slots(d, events, duracion_min, presencia_cliente_min, event_horario=event_horario)
+
+
+def get_slots_disponibles_evento(
+    d: date,
+    bypass_cache: bool = False,
+    duracion_min: int = 30,
+    presencia_cliente_min: int = 30,
+) -> List[str]:
+    """
+    Returns available slots for a special-event day.
+    Uses 'evt_{d}_{duracion}_{presencia}' cache keys to avoid colliding with normal flow.
+    bypass_cache=True skips cache (used during booking confirmation).
+    Today-filter applied on every read, same as get_slots_disponibles.
+    """
+    today = datetime.now(TZ).date()
+    now_time = datetime.now(TZ).strftime("%H:%M")
+
+    if not bypass_cache:
+        key = f"evt_{_slot_cache_key(d, duracion_min, presencia_cliente_min)}"
+        now_ts = time.time()
+        with _slot_cache_lock:
+            if key in _slot_cache:
+                result, ts = _slot_cache[key]
+                if now_ts - ts < SLOT_CACHE_TTL_SEC:
+                    result = list(result)
+                    if d == today:
+                        result = [s for s in result if s > now_time]
+                    return result
+
+    try:
+        result = _get_slots_evento_uncached(d, duracion_min=duracion_min, presencia_cliente_min=presencia_cliente_min)
+    except Exception as e:
+        logger.error(f"[CAL] Error fetching evento slots for {d}: {e}", exc_info=True)
+        metrics.inc('calendar_errors')
+        return []
+
+    if not bypass_cache:
+        evt_key = f"evt_{_slot_cache_key(d, duracion_min, presencia_cliente_min)}"
+        with _slot_cache_lock:
+            _slot_cache[evt_key] = (list(result), time.time())
+
+    if d == today:
+        result = [s for s in result if s > now_time]
+    return result
+
+
+def get_slots_disponibles_evento_range(
+    days: List[date],
+    duracion_min: int = 30,
+    presencia_cliente_min: int = 30,
+) -> dict:
+    """
+    Fetch and compute available slots for every date in `days` using a single
+    batched Google Calendar API call for [min(days), max(days)].
+
+    Populates the per-day 'evt_*' slot cache as a side-effect so that
+    subsequent single-day get_slots_disponibles_evento() calls are cache hits.
+
+    Returns dict[date, List[str]] with today-filter applied on today's value.
+    Returns {} on any error or if `days` is empty.
+    """
+    if not days:
+        return {}
+    try:
+        start = min(days)
+        end = max(days)
+        service = _get_service()
+        events_by_day = _get_events_in_range(service, start, end)
+
+        today = datetime.now(TZ).date()
+        now_time = datetime.now(TZ).strftime("%H:%M")
+        now_ts = time.time()
+
+        result: dict = {}
+        for d in days:
+            key = d.isoformat()
+            raw_ranges = EVENTO_DIAS.get(key, [])
+            event_horario = [(r[0], r[1]) for r in raw_ranges] if raw_ranges else []
+            if not event_horario:
+                slots: List[str] = []
+            else:
+                slots = _compute_slots(
+                    d, events_by_day.get(d, []), duracion_min, presencia_cliente_min,
+                    event_horario=event_horario,
+                )
+
+            # Write unfiltered slots to evt_* cache
+            evt_key = f"evt_{_slot_cache_key(d, duracion_min, presencia_cliente_min)}"
+            with _slot_cache_lock:
+                _slot_cache[evt_key] = (list(slots), now_ts)
+
+            # Apply today-filter only to the returned value
+            if d == today:
+                result[d] = [s for s in slots if s > now_time]
+            else:
+                result[d] = list(slots)
+
+        return result
+    except Exception as e:
+        logger.error(f"[CAL] Error in get_slots_disponibles_evento_range: {e}", exc_info=True)
         metrics.inc('calendar_errors')
         return {}
 

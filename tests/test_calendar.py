@@ -1117,3 +1117,117 @@ class TestGetEventById:
         )
         result = cal.get_event_by_id("evt1", "34600000001")
         assert result is None
+
+
+# ── _compute_slots with event_horario ─────────────────────────────────────────
+
+class TestComputeSlotsEventHorario:
+    """Verify the event_horario parameter in _compute_slots."""
+
+    def test_event_horario_used_when_no_special_schedule(self):
+        """event_horario provides base slots when no [CFG] HORARIO is present."""
+        import app.services.calendar as cal_module
+        d = date(2099, 12, 25)  # Sunday — no HORARIO_BASE entry
+        event_horario = [("10:00", "12:00")]
+        result = cal_module._compute_slots(d, [], duracion_min=30, presencia_cliente_min=30,
+                                           event_horario=event_horario)
+        assert "10:00" in result
+        assert "10:30" in result
+        assert "11:30" in result
+        assert "12:00" not in result
+
+    def test_special_schedule_takes_priority_over_event_horario(self):
+        """[CFG] HORARIO overrides event_horario (highest priority for open schedules)."""
+        import app.services.calendar as cal_module
+        d = date(2099, 12, 25)
+        cfg_ev = {
+            'id': 'cfg1', 'title': '[CFG] HORARIO 09:00-10:00', 'description': '',
+            'start': aware(2099, 12, 25, 0, 0), 'end': aware(2099, 12, 25, 23, 59),
+            'all_day': True,
+        }
+        event_horario = [("10:00", "14:00")]
+        result = cal_module._compute_slots(d, [cfg_ev], duracion_min=30, presencia_cliente_min=30,
+                                           event_horario=event_horario)
+        # special_schedule 09:00-10:00: only 09:00 slot (09:00+30=09:30≤10:00 ✓; 09:30+30=10:00≤10:00 ✓ → 09:00 and 09:30)
+        assert "09:00" in result
+        assert "10:30" not in result  # event_horario's range must not appear
+
+    def test_cerrado_overrides_event_horario(self):
+        """[CFG] CERRADO takes priority over event_horario → []."""
+        import app.services.calendar as cal_module
+        d = date(2099, 12, 25)
+        cfg_ev = {
+            'id': 'cfg1', 'title': '[CFG] CERRADO', 'description': '',
+            'start': aware(2099, 12, 25, 0, 0), 'end': aware(2099, 12, 25, 23, 59),
+            'all_day': True,
+        }
+        event_horario = [("10:00", "14:00")]
+        result = cal_module._compute_slots(d, [cfg_ev], event_horario=event_horario)
+        assert result == []
+
+    def test_none_event_horario_falls_back_to_horario_base(self):
+        """event_horario=None (default) → normal HORARIO_BASE fallback path unchanged."""
+        import app.services.calendar as cal_module
+        d = date(2026, 3, 24)  # Tuesday — has HORARIO_BASE slots
+        result = cal_module._compute_slots(d, [], duracion_min=30, presencia_cliente_min=30,
+                                           event_horario=None)
+        # Should return the same slots as without event_horario
+        expected = cal_module._compute_slots(d, [], duracion_min=30, presencia_cliente_min=30)
+        assert result == expected
+
+
+# ── get_slots_disponibles_evento ───────────────────────────────────────────────
+
+class TestGetSlotsDisponiblesEvento:
+    """Tests for get_slots_disponibles_evento and get_slots_disponibles_evento_range."""
+
+    def test_returns_slots_for_event_day(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.return_value = {"items": []}
+
+        d = date(2099, 12, 25)
+        dias = {d.isoformat(): [["10:00", "12:00"]]}
+        with patch("app.services.calendar.EVENTO_DIAS", dias):
+            slots = cal_module.get_slots_disponibles_evento(d)
+        assert "10:00" in slots
+        assert "11:30" in slots
+        assert "12:00" not in slots
+
+    def test_returns_empty_for_day_not_in_evento_dias(self, cal_with_service):
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        d = date(2099, 12, 26)
+        with patch("app.services.calendar.EVENTO_DIAS", {}):
+            slots = cal_module.get_slots_disponibles_evento(d)
+        assert slots == []
+
+    def test_evt_cache_key_populated_after_call(self, cal_with_service):
+        """After get_slots_disponibles_evento, an evt_* key exists in _slot_cache."""
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.return_value = {"items": []}
+
+        d = date(2099, 12, 25)
+        dias = {d.isoformat(): [["10:00", "12:00"]]}
+        with patch("app.services.calendar.EVENTO_DIAS", dias):
+            cal_module.get_slots_disponibles_evento(d)
+        evt_key = f"evt_{cal_module._slot_cache_key(d, 30, 30)}"
+        assert evt_key in cal_module._slot_cache
+
+    def test_invalidate_slot_cache_clears_evt_keys(self, cal_with_service):
+        """_invalidate_slot_cache removes both normal and evt_* keys for the date."""
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+
+        d = date(2099, 12, 25)
+        normal_key = cal_module._slot_cache_key(d, 30, 30)
+        evt_key = f"evt_{normal_key}"
+        with cal_module._slot_cache_lock:
+            cal_module._slot_cache[normal_key] = ([], __import__("time").time())
+            cal_module._slot_cache[evt_key] = ([], __import__("time").time())
+
+        cal_module._invalidate_slot_cache(d)
+
+        assert normal_key not in cal_module._slot_cache
+        assert evt_key not in cal_module._slot_cache

@@ -4,6 +4,7 @@ import os
 import pathlib
 import re
 import yaml
+from datetime import date as _date
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -166,6 +167,51 @@ def _load_and_validate_yaml(path: str) -> dict:
                 f"[CONFIG] Rule 8: 'envios.{field}' must be a boolean (true/false), got {type(val).__name__!r}"
             )
 
+    # Rule 9: evento block (optional — absent or activo not True is always OK)
+    _evento_block = cfg.get("evento")
+    if isinstance(_evento_block, dict) and _evento_block.get("activo") is True:
+        # Deep validation only when activo is exactly True
+        _ev_nombre = _evento_block.get("nombre")
+        if not isinstance(_ev_nombre, str) or not _ev_nombre.strip():
+            raise RuntimeError("[CONFIG] Rule 9: 'evento.nombre' must be a non-empty string when activo is true")
+        _ev_dias = _evento_block.get("dias")
+        if not isinstance(_ev_dias, dict) or len(_ev_dias) == 0:
+            raise RuntimeError("[CONFIG] Rule 9: 'evento.dias' must be a non-empty mapping when activo is true")
+        for iso_key, ranges in _ev_dias.items():
+            try:
+                _date.fromisoformat(str(iso_key))
+            except ValueError:
+                raise RuntimeError(
+                    f"[CONFIG] Rule 9: 'evento.dias' key '{iso_key}' is not a valid ISO date (YYYY-MM-DD)"
+                )
+            if not isinstance(ranges, list) or len(ranges) == 0:
+                raise RuntimeError(
+                    f"[CONFIG] Rule 9: 'evento.dias.{iso_key}' must be a non-empty list of ranges"
+                )
+            for rng in ranges:
+                if not (isinstance(rng, list) and len(rng) == 2):
+                    raise RuntimeError(
+                        f"[CONFIG] Rule 9: each range in 'evento.dias.{iso_key}' must be a 2-element list [inicio, fin]"
+                    )
+                inicio, fin = rng
+                if not (_TIME_RE.match(str(inicio)) and _TIME_RE.match(str(fin))):
+                    raise RuntimeError(
+                        f"[CONFIG] Rule 9: range values in 'evento.dias.{iso_key}' must be 'HH:MM' strings"
+                    )
+                if fin <= inicio:
+                    raise RuntimeError(
+                        f"[CONFIG] Rule 9: 'evento.dias.{iso_key}' has range where fin ('{fin}') <= inicio ('{inicio}')"
+                    )
+            if len(ranges) > 1 and _ranges_overlap(ranges):
+                raise RuntimeError(
+                    f"[CONFIG] Rule 9: 'evento.dias.{iso_key}' has overlapping time ranges"
+                )
+        if len(_ev_dias) > 9:
+            logging.getLogger(__name__).warning(
+                f"[CONFIG] Rule 9: 'evento.dias' has {len(_ev_dias)} dates; "
+                "more than 9 may not display well in the WhatsApp day picker (max 9 rows)."
+            )
+
     return cfg
 
 
@@ -194,6 +240,13 @@ RECORDATORIO_HASTA_H: int = _cfg["recordatorio_horas_antes"]["hasta"]
 
 ENVIAR_RECORDATORIOS: bool = _cfg["envios"]["recordatorios"]
 ENVIAR_CONFIRMACIONES: bool = _cfg["envios"]["confirmaciones"]
+
+# ── Special event (optional) ───────────────────────────────────────────────
+_evento_cfg = _cfg.get("evento") or {}
+EVENTO_ACTIVO: bool = _evento_cfg.get("activo") is True
+EVENTO_NOMBRE: str = _evento_cfg.get("nombre", "") if EVENTO_ACTIVO else ""
+# EVENTO_DIAS: dict[str, list] — keys are ISO date strings e.g. "2026-12-20"
+EVENTO_DIAS: dict = dict(_evento_cfg.get("dias") or {}) if EVENTO_ACTIVO else {}
 
 # ── WhatsApp credentials ───────────────────────────────────────────────────
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")

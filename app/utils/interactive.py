@@ -9,7 +9,7 @@ WhatsApp limits:
 """
 from datetime import date
 from typing import List, Optional
-from app.config import INTERACTIVE_FOOTER, CONTACT_PHONE, SERVICIOS, BUSINESS_NAME
+from app.config import INTERACTIVE_FOOTER, CONTACT_PHONE, SERVICIOS, BUSINESS_NAME, EVENTO_ACTIVO, EVENTO_NOMBRE
 from app.utils.slots import format_date_es
 
 
@@ -70,15 +70,39 @@ def _interactive_list(body: str, button_label: str, sections: list,
 # ── Public builders ────────────────────────────────────────────────────────
 
 def build_main_menu() -> dict:
-    """Main menu with 3 reply buttons."""
-    return _interactive_buttons(
-        header=f"✂️ {BUSINESS_NAME}",
-        body="💈 ¡Bienvenido!\n¿En qué podemos ayudarte hoy?\n\n📞 Para otras consultas, llámanos al " + CONTACT_PHONE,
-        buttons=[
-            _button("menu_book",   "📅 Pedir cita"),
-            _button("menu_view",   "📋 Mis citas"),
-            _button("menu_cancel", "❌ Cancelar cita"),
-        ],
+    """
+    Main menu.
+    - EVENTO_ACTIVO=False (default): 3 reply buttons (unchanged behaviour).
+    - EVENTO_ACTIVO=True:            interactive list with 4 rows including
+                                     menu_book_event for the special event.
+    """
+    body = "💈 ¡Bienvenido!\n¿En qué podemos ayudarte hoy?\n\n📞 Para otras consultas, llámanos al " + CONTACT_PHONE
+    header = f"✂️ {BUSINESS_NAME}"
+
+    if not EVENTO_ACTIVO:
+        return _interactive_buttons(
+            header=header,
+            body=body,
+            buttons=[
+                _button("menu_book",   "📅 Pedir cita"),
+                _button("menu_view",   "📋 Mis citas"),
+                _button("menu_cancel", "❌ Cancelar cita"),
+            ],
+        )
+
+    # Event active → list with 4 rows
+    event_label = _trunc(f"Cita {EVENTO_NOMBRE}", 24)
+    rows = [
+        _row("menu_book",       "📅 Pedir cita"),
+        _row("menu_view",       "📋 Mis citas"),
+        _row("menu_cancel",     "❌ Cancelar cita"),
+        _row("menu_book_event", event_label),
+    ]
+    return _interactive_list(
+        header=header,
+        body=body,
+        button_label="Ver opciones",
+        sections=[_section("Opciones", rows)],
     )
 
 
