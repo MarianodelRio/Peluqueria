@@ -16,6 +16,7 @@ from app.utils.interactive import (
     build_cancel_select,
     build_back_to_menu_message,
 )
+from app.config import SERVICIOS
 import pytz
 from datetime import datetime
 
@@ -163,29 +164,49 @@ class TestBuildHoursList:
 # ── build_service_select ────────────────────────────────────────────────────────
 
 class TestBuildServiceSelect:
-    def test_type_is_button(self):
+    def test_type_is_list(self):
         msg = build_service_select()
         assert msg["type"] == "interactive"
-        assert msg["interactive"]["type"] == "button"
+        assert msg["interactive"]["type"] == "list"
 
-    def test_exactly_three_buttons(self):
-        assert len(_buttons(build_service_select())) == 3
+    def test_all_service_row_ids_start_with_service(self):
+        rows = _all_rows(build_service_select())
+        service_rows = [r for r in rows if r["id"] != "back_to_menu"]
+        for r in service_rows:
+            assert r["id"].startswith("service_"), r["id"]
 
-    def test_all_button_ids_start_with_service(self):
-        for b in _buttons(build_service_select()):
-            assert b["reply"]["id"].startswith("service_"), b["reply"]["id"]
+    def test_back_to_menu_row_exists(self):
+        rows = _all_rows(build_service_select())
+        ids = [r["id"] for r in rows]
+        assert "back_to_menu" in ids
 
-    def test_all_button_titles_under_20_chars(self):
-        for b in _buttons(build_service_select()):
-            assert len(b["reply"]["title"]) <= 20, b["reply"]["title"]
+    def test_total_rows_under_or_equal_10(self):
+        rows = _all_rows(build_service_select())
+        assert len(rows) <= 10
 
-    def test_specific_button_ids(self):
-        ids = {b["reply"]["id"] for b in _buttons(build_service_select())}
-        assert ids == {"service_corte", "service_corte_barba", "service_mechas"}
+    def test_row_titles_under_24_chars(self):
+        rows = _all_rows(build_service_select())
+        for r in rows:
+            assert len(r["title"]) <= 24, r["title"]
 
-    def test_price_in_button_titles(self):
-        titles = [b["reply"]["title"] for b in _buttons(build_service_select())]
-        assert any("€" in title for title in titles)
+    def test_service_rows_have_euro_description(self):
+        rows = _all_rows(build_service_select())
+        service_rows = [r for r in rows if r["id"] != "back_to_menu"]
+        for r in service_rows:
+            assert "description" in r, f"Row {r['id']} has no description"
+            assert "€" in r["description"], f"Row {r['id']} description missing €"
+
+    def test_service_row_count_matches_servicios(self):
+        rows = _all_rows(build_service_select())
+        service_rows = [r for r in rows if r["id"] != "back_to_menu"]
+        assert len(service_rows) == len(SERVICIOS)
+
+    def test_specific_service_ids_present(self):
+        rows = _all_rows(build_service_select())
+        ids = {r["id"] for r in rows}
+        assert "service_corte" in ids
+        assert "service_corte_barba" in ids
+        assert "service_mechas" in ids
 
 
 # ── build_appointments_view ─────────────────────────────────────────────────────

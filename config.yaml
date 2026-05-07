@@ -1,0 +1,64 @@
+# config.yaml — Configuracion del negocio. Rastreado en git.
+
+negocio:
+  nombre: "DM Barber Shop"
+  telefono_contacto: "+34 676 27 38 00"
+
+# Horario de apertura por dia de la semana.
+# Claves validas: lunes, martes, miercoles, jueves, viernes, sabado, domingo.
+# Cada dia es una lista de rangos [inicio, fin] en formato HH:MM.
+# Los dias no listados se consideran cerrados.
+horario:
+  lunes:
+    - ["10:00", "14:00"]
+    - ["17:00", "21:00"]
+  martes:
+    - ["10:00", "14:00"]
+    - ["17:00", "21:00"]
+  miercoles:
+    - ["10:00", "14:00"]
+    - ["17:00", "21:00"]
+  jueves:
+    - ["10:00", "14:00"]
+    - ["17:00", "21:00"]
+  viernes:
+    - ["10:00", "14:00"]
+    - ["17:00", "21:00"]
+  sabado:
+    - ["10:00", "14:00"]
+
+# Dias hacia adelante que se ofrecen al cliente para elegir dia de cita.
+ventana_busqueda_dias: 14
+
+# Servicios ofrecidos. Maximo 9 (limite de filas de lista de WhatsApp).
+servicios:
+  corte:
+    nombre: "Corte de pelo"
+    precio: 10
+    duracion_min: 30
+    presencia_cliente_min: 30
+  corte_barba:
+    nombre: "Corte de pelo + barba"
+    precio: 12
+    duracion_min: 30
+    presencia_cliente_min: 30
+  mechas:
+    nombre: "Mechas"
+    precio: 30
+    duracion_min: 60
+    presencia_cliente_min: 180
+
+# Ventana de busqueda de citas en Google Calendar (dias desde hoy).
+lookaheads_dias:
+  citas_cliente: 30
+  citas_manuales: 60
+
+# Ventana de envio de recordatorios (horas antes de la cita).
+recordatorio_horas_antes:
+  desde: 23
+  hasta: 25
+
+# Activar o desactivar el envio de mensajes automaticos.
+envios:
+  recordatorios: true
+  confirmaciones: true

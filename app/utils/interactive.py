@@ -9,7 +9,7 @@ WhatsApp limits:
 """
 from datetime import date
 from typing import List, Optional
-from app.config import INTERACTIVE_FOOTER, CONTACT_PHONE
+from app.config import INTERACTIVE_FOOTER, CONTACT_PHONE, SERVICIOS, BUSINESS_NAME
 from app.utils.slots import format_date_es
 
 
@@ -72,7 +72,7 @@ def _interactive_list(body: str, button_label: str, sections: list,
 def build_main_menu() -> dict:
     """Main menu with 3 reply buttons."""
     return _interactive_buttons(
-        header="✂️ DM BARBER SHOP",
+        header=f"✂️ {BUSINESS_NAME}",
         body="💈 ¡Bienvenido!\n¿En qué podemos ayudarte hoy?\n\n📞 Para otras consultas, llámanos al " + CONTACT_PHONE,
         buttons=[
             _button("menu_book",   "📅 Pedir cita"),
@@ -139,15 +139,17 @@ def build_hours_list(d: date, slots: List[str], came_from_period: bool = False) 
 
 
 def build_service_select() -> dict:
-    """Ask user to choose a service (3 reply buttons)."""
-    return _interactive_buttons(
+    """Ask user to choose a service (interactive list, dynamic from SERVICIOS)."""
+    rows = [
+        _row(f"service_{key}", svc["nombre"], f"{svc['precio']} €")
+        for key, svc in SERVICIOS.items()
+    ]
+    rows.append(_row("back_to_menu", "↩️ Volver al menú"))
+    return _interactive_list(
         header="✂️ Elige tu servicio",
         body="¿Qué servicio quieres?",
-        buttons=[
-            _button("service_corte",      "✂️ Corte 10€"),
-            _button("service_corte_barba", "✂️ Corte+Barba 12€"),
-            _button("service_mechas",     "🎨 Mechas 30€"),
-        ],
+        button_label="Ver servicios",
+        sections=[_section("Servicios", rows)],
     )
 
 
@@ -170,7 +172,7 @@ def build_appointments_view(citas: list) -> dict:
     body += "\nSi necesitas algo más, escríbenos cuando quieras 😊"
 
     return _interactive_buttons(
-        header="📋 DM BARBER SHOP",
+        header=f"📋 {BUSINESS_NAME}",
         body=body,
         buttons=[_button("back_to_menu", "↩️ Volver al menú")],
     )

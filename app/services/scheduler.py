@@ -16,6 +16,8 @@ from app.config import (
     WHATSAPP_REMINDER_TEMPLATE,
     WHATSAPP_CONFIRMATION_TEMPLATE,
     WHATSAPP_TEMPLATE_LANG,
+    ENVIAR_RECORDATORIOS,
+    ENVIAR_CONFIRMACIONES,
 )
 from app.services import calendar as cal_service
 from app.services.calendar import _get_service
@@ -36,6 +38,9 @@ def job_sync_citas_manuales():
     """
     t0 = time.time()
     logger.info("[JOB] START sync_citas_manuales")
+    if not ENVIAR_CONFIRMACIONES:
+        logger.info("[JOB] sync_citas_manuales disabled by config, skipping")
+        return
     metrics.inc('scheduler_sync_manual_runs')
     try:
         events = cal_service.get_eventos_manuales_sin_confirmar()
@@ -98,6 +103,9 @@ def job_enviar_recordatorios():
     """
     t0 = time.time()
     logger.info("[JOB] START enviar_recordatorios")
+    if not ENVIAR_RECORDATORIOS:
+        logger.info("[JOB] enviar_recordatorios disabled by config, skipping")
+        return
     metrics.inc('scheduler_recordatorios_runs')
     try:
         citas = cal_service.get_citas_para_recordatorio()

@@ -14,7 +14,12 @@ import pytz
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
-from app.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_ID, TIMEZONE, CITA_DURACION_MIN, GOOGLE_API_TIMEOUT_SEC, SLOT_CACHE_TTL_SEC, CITAS_CACHE_TTL_SEC, SERVICIOS
+from app.config import (
+    GOOGLE_CREDENTIALS_PATH, GOOGLE_CALENDAR_ID, TIMEZONE, CITA_DURACION_MIN,
+    GOOGLE_API_TIMEOUT_SEC, SLOT_CACHE_TTL_SEC, CITAS_CACHE_TTL_SEC, SERVICIOS,
+    LOOKAHEAD_CITAS_CLIENTE_DIAS, LOOKAHEAD_CITAS_MANUALES_DIAS,
+    RECORDATORIO_DESDE_H, RECORDATORIO_HASTA_H,
+)
 from app.utils import metrics
 from app.utils.security import mask_phone
 from app.utils.parser import (
@@ -482,7 +487,7 @@ def get_eventos_manuales_sin_confirmar() -> List[dict]:
     """
     service = _get_service()
     now = datetime.now(TZ)
-    time_max = (now + timedelta(days=60)).isoformat()
+    time_max = (now + timedelta(days=LOOKAHEAD_CITAS_MANUALES_DIAS)).isoformat()
 
     result = service.events().list(
         calendarId=GOOGLE_CALENDAR_ID,
@@ -559,8 +564,8 @@ def get_citas_para_recordatorio() -> List[dict]:
     """
     service = _get_service()
     now = datetime.now(TZ)
-    window_start = now + timedelta(hours=23)
-    window_end = now + timedelta(hours=25)
+    window_start = now + timedelta(hours=RECORDATORIO_DESDE_H)
+    window_end = now + timedelta(hours=RECORDATORIO_HASTA_H)
 
     result = service.events().list(
         calendarId=GOOGLE_CALENDAR_ID,
@@ -640,7 +645,7 @@ def get_citas_futuras(telefono: str) -> list:
 
         service = _get_service()
         now = datetime.now(TZ)
-        time_max = (now + timedelta(days=30)).isoformat()
+        time_max = (now + timedelta(days=LOOKAHEAD_CITAS_CLIENTE_DIAS)).isoformat()
 
         result = service.events().list(
             calendarId=GOOGLE_CALENDAR_ID,

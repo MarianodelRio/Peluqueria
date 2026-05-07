@@ -252,13 +252,11 @@ def _handle_menu(phone: str, state: ConversationState, value: str):
 # ── BOOK: SELECT SERVICE ───────────────────────────────────────────────────
 
 def _handle_book_select_service(phone: str, state: ConversationState, value: str):
-    service_map = {
-        "service_corte":       "corte",
-        "service_corte_barba": "corte_barba",
-        "service_mechas":      "mechas",
-    }
-    key = service_map.get(value)
-    if not key:
+    if not value.startswith("service_"):
+        _to_menu(phone)
+        return
+    key = value.removeprefix("service_")
+    if key not in SERVICIOS:
         _to_menu(phone)
         return
     state.selected_service = SERVICIOS[key]
