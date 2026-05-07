@@ -83,7 +83,7 @@ class TestFileErrors:
 
     def test_invalid_yaml_raises_runtime_error(self, tmp_path):
         p = tmp_path / "config.yaml"
-        p.write_text(":::not yaml:::", encoding="utf-8")
+        p.write_text("{unclosed: bracket", encoding="utf-8")
         with pytest.raises(RuntimeError, match="Cannot load config.yaml"):
             _load_and_validate_yaml(str(p))
 
