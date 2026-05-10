@@ -1,7 +1,6 @@
 # config.py
 import logging
 import os
-import pathlib
 import re
 import yaml
 from datetime import date as _date
@@ -260,7 +259,7 @@ EVENTO_DIAS: dict = dict(_evento_cfg.get("dias") or {}) if EVENTO_ACTIVO else {}
 # ── Admin command ─────────────────────────────────────────────────────────
 # ADMIN_PHONE: digits-only WhatsApp number that may trigger admin commands.
 # Empty string means admin commands are disabled.
-ADMIN_PHONE: str = _cfg["negocio"].get("admin_phone") or ""
+ADMIN_PHONE: str = os.getenv("ADMIN_PHONE") or _cfg["negocio"].get("admin_phone") or ""
 # The text command that triggers the status report (case-insensitive match).
 ADMIN_COMANDO: str = "/estado"
 
