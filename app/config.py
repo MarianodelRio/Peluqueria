@@ -213,7 +213,7 @@ def _load_and_validate_yaml(path: str) -> dict:
 
     # Rule 10: negocio.admin_phone, if present, must be a string of 7-15 digits (no '+', no spaces)
     _admin_phone_raw = negocio.get("admin_phone")
-    if _admin_phone_raw is not None:
+    if _admin_phone_raw:  # None and "" both treated as "disabled"
         if not isinstance(_admin_phone_raw, str) or not re.fullmatch(r"\d{7,15}", _admin_phone_raw):
             raise RuntimeError(
                 "[CONFIG] Rule 10: 'negocio.admin_phone' must be a string of 7-15 digits "
