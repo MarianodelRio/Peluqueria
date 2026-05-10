@@ -21,7 +21,8 @@ from datetime import date, datetime
 from typing import Optional
 import pytz
 
-from app.config import TIMEZONE, ESTADO_EXPIRACION_MIN, HORARIO_BASE, BOOKING_WINDOW_DAYS, SERVICIOS, CITAS_CACHE_TTL_SEC, EVENTO_ACTIVO
+from app.config import TIMEZONE, ESTADO_EXPIRACION_MIN, HORARIO_BASE, BOOKING_WINDOW_DAYS, SERVICIOS, CITAS_CACHE_TTL_SEC, EVENTO_ACTIVO, ADMIN_PHONE, ADMIN_COMANDO
+from app.utils.admin import build_status_report
 from app.services import calendar as cal
 from app.services import whatsapp as wa
 from app.utils.interactive import (
@@ -147,6 +148,12 @@ def _process_message(phone: str, text: Optional[str], interactive_id: Optional[s
     """Inner handler — called inside the per-phone lock."""
     state = _get(phone)
     state.touch()
+
+    # Admin command intercept — runs before any other routing
+    if text is not None and text.strip().lower() == ADMIN_COMANDO and ADMIN_PHONE and phone == ADMIN_PHONE:
+        report = build_status_report()
+        wa.send_text_message(phone, report)
+        return
 
     # Global: back_to_menu from any state
     if interactive_id == "back_to_menu":

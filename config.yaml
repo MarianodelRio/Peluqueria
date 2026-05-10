@@ -3,6 +3,7 @@
 negocio:
   nombre: "DM Barber Shop"
   telefono_contacto: "+34 676 27 38 00"
+  admin_phone: "34711788852"   # Solo digitos, sin '+' ni espacios. Si esta ausente, /estado queda desactivado.
 
 # Horario de apertura por dia de la semana.
 # Claves validas: lunes, martes, miercoles, jueves, viernes, sabado, domingo.

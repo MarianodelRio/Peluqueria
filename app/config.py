@@ -212,6 +212,15 @@ def _load_and_validate_yaml(path: str) -> dict:
                 "more than 9 may not display well in the WhatsApp day picker (max 9 rows)."
             )
 
+    # Rule 10: negocio.admin_phone, if present, must be a string of 7-15 digits (no '+', no spaces)
+    _admin_phone_raw = negocio.get("admin_phone")
+    if _admin_phone_raw is not None:
+        if not isinstance(_admin_phone_raw, str) or not re.fullmatch(r"\d{7,15}", _admin_phone_raw):
+            raise RuntimeError(
+                "[CONFIG] Rule 10: 'negocio.admin_phone' must be a string of 7-15 digits "
+                "(no '+', no spaces, no dashes) — e.g. '34612345678'"
+            )
+
     return cfg
 
 
@@ -247,6 +256,13 @@ EVENTO_ACTIVO: bool = _evento_cfg.get("activo") is True
 EVENTO_NOMBRE: str = _evento_cfg.get("nombre", "") if EVENTO_ACTIVO else ""
 # EVENTO_DIAS: dict[str, list] — keys are ISO date strings e.g. "2026-12-20"
 EVENTO_DIAS: dict = dict(_evento_cfg.get("dias") or {}) if EVENTO_ACTIVO else {}
+
+# ── Admin command ─────────────────────────────────────────────────────────
+# ADMIN_PHONE: digits-only WhatsApp number that may trigger admin commands.
+# Empty string means admin commands are disabled.
+ADMIN_PHONE: str = _cfg["negocio"].get("admin_phone") or ""
+# The text command that triggers the status report (case-insensitive match).
+ADMIN_COMANDO: str = "/estado"
 
 # ── WhatsApp credentials ───────────────────────────────────────────────────
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")

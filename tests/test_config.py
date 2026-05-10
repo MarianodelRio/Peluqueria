@@ -396,3 +396,34 @@ class TestRule9Evento:
         p = _write_yaml(tmp_path, data)
         with pytest.raises(RuntimeError, match="Rule 9"):
             _load_and_validate_yaml(str(p))
+
+
+# ── Rule 10: admin_phone ──────────────────────────────────────────────────────
+
+class TestRule10AdminPhone:
+    """Rule 10: admin_phone is optional; when present must be a digit-only string."""
+
+    def test_valid_admin_phone_passes(self, tmp_path):
+        data = _minimal_valid()
+        data["negocio"]["admin_phone"] = "34612345678"
+        p = _write_yaml(tmp_path, data)
+        _load_and_validate_yaml(str(p))
+
+    def test_admin_phone_absent_passes(self, tmp_path):
+        data = _minimal_valid()
+        p = _write_yaml(tmp_path, data)
+        _load_and_validate_yaml(str(p))
+
+    def test_admin_phone_with_plus_prefix_raises(self, tmp_path):
+        data = _minimal_valid()
+        data["negocio"]["admin_phone"] = "+34612345678"
+        p = _write_yaml(tmp_path, data)
+        with pytest.raises(RuntimeError, match="Rule 10"):
+            _load_and_validate_yaml(str(p))
+
+    def test_admin_phone_as_integer_raises(self, tmp_path):
+        data = _minimal_valid()
+        data["negocio"]["admin_phone"] = 34612345678
+        p = _write_yaml(tmp_path, data)
+        with pytest.raises(RuntimeError, match="Rule 10"):
+            _load_and_validate_yaml(str(p))
