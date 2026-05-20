@@ -72,6 +72,7 @@ def _get_day_events(service, d: date) -> List[dict]:
         timeMax=day_end.isoformat(),
         singleEvents=True,
         orderBy='startTime',
+        fields='items(id,summary,description,start,end)',
     ).execute(num_retries=2)
 
     events = []
@@ -294,6 +295,7 @@ def _get_events_in_range(service, start: date, end: date) -> dict:
             timeMax=range_end.isoformat(),
             singleEvents=True,
             orderBy='startTime',
+            fields='items(id,summary,description,start,end),nextPageToken',
         )
         if page_token:
             kwargs['pageToken'] = page_token
@@ -644,6 +646,7 @@ def get_eventos_manuales_sin_confirmar() -> List[dict]:
         timeMax=time_max,
         singleEvents=True,
         orderBy='startTime',
+        fields='items(id,summary,description,start,end),nextPageToken',
     ).execute(num_retries=2)
 
     manual_events = []
@@ -722,6 +725,7 @@ def get_citas_para_recordatorio() -> List[dict]:
         timeMax=window_end.isoformat(),
         singleEvents=True,
         orderBy='startTime',
+        fields='items(id,summary,description,start,end),nextPageToken',
     ).execute(num_retries=2)
 
     reminders = []
@@ -802,6 +806,7 @@ def get_citas_futuras(telefono: str) -> list:
             timeMax=time_max,
             singleEvents=True,
             orderBy='startTime',
+            fields='items(id,summary,description,start,end),nextPageToken',
         ).execute(num_retries=2)
 
         citas = []
@@ -856,7 +861,8 @@ def get_event_by_id(event_id: str, phone: str) -> Optional[dict]:
     try:
         service = _get_service()
         event = service.events().get(
-            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id,
+            fields='id,summary,description,start,end',
         ).execute(num_retries=2)
     except Exception as e:
         logger.debug(f"[CAL] get_event_by_id not found or error event_id={event_id}: {e}")
@@ -899,6 +905,7 @@ def check_calendar_health() -> bool:
             calendarId=GOOGLE_CALENDAR_ID,
             maxResults=1,
             singleEvents=True,
+            fields='items(id)',
         ).execute(num_retries=2)
         return True
     except Exception as e:

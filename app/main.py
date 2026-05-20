@@ -67,6 +67,8 @@ _scheduler = None
 async def lifespan(app: FastAPI):
     global _scheduler
     validate_config()   # Fail fast if critical env vars are missing
+    logger.info("[APP] Warming up Calendar client...")
+    check_calendar_health()
     logger.info("[APP] Starting scheduler...")
     _scheduler = create_scheduler()
     _scheduler.start()

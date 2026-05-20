@@ -737,6 +737,47 @@ class TestGetEventsInRange:
         assert svc.events.return_value.list.return_value.execute.call_count == 5
         assert isinstance(result, dict)
 
+    def test_events_list_called_with_fields_parameter(self, cal_with_service):
+        """_get_events_in_range passes fields= containing required field names and nextPageToken."""
+        cal, svc = cal_with_service
+        svc.events.return_value.list.return_value.execute.return_value = {"items": []}
+
+        start = date(2026, 5, 10)
+        end = date(2026, 5, 15)
+        cal._get_events_in_range(svc, start, end)
+
+        call_kwargs = svc.events.return_value.list.call_args[1]
+        assert 'fields' in call_kwargs
+        assert 'items(id,summary,description,start,end)' in call_kwargs['fields']
+        assert 'nextPageToken' in call_kwargs['fields']
+
+    def test_pagination_works_with_fields_parameter(self, cal_with_service):
+        """Both pages are fetched and each list call carries the fields= kwarg."""
+        cal, svc = cal_with_service
+        start = date(2026, 5, 10)
+        end = date(2026, 5, 15)
+
+        evt1 = make_timed_gc_event("e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30))
+        evt2 = make_timed_gc_event("e2", "B", "", aware(2026, 5, 11, 10, 0), aware(2026, 5, 11, 10, 30))
+
+        svc.events.return_value.list.return_value.execute.side_effect = [
+            {"items": [evt1], "nextPageToken": "token_page2"},
+            {"items": [evt2]},
+        ]
+
+        result = cal._get_events_in_range(svc, start, end)
+
+        # Both pages were fetched and concatenated
+        assert len(result[date(2026, 5, 10)]) == 1
+        assert len(result[date(2026, 5, 11)]) == 1
+        assert svc.events.return_value.list.return_value.execute.call_count == 2
+
+        # Every list() call had the fields= kwarg
+        for list_call in svc.events.return_value.list.call_args_list:
+            kwargs = list_call[1]
+            assert 'fields' in kwargs
+            assert 'nextPageToken' in kwargs['fields']
+
 
 # ── _compute_slots ────────────────────────────────────────────────────────────────
 
@@ -1117,6 +1158,15 @@ class TestGetEventById:
         )
         result = cal.get_event_by_id("evt1", "34600000001")
         assert result is None
+
+    def test_get_event_by_id_uses_fields_parameter(self, cal_with_service):
+        """get_event_by_id passes fields= to events().get() to limit payload size."""
+        cal, svc = cal_with_service
+        self._make_event_response(svc)
+        cal.get_event_by_id("evt1", "34600000001")
+
+        call_kwargs = svc.events.return_value.get.call_args[1]
+        assert 'fields' in call_kwargs
 
 
 # ── _compute_slots with event_horario ─────────────────────────────────────────

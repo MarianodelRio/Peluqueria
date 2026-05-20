@@ -20,10 +20,8 @@ from app.config import (
     ENVIAR_CONFIRMACIONES,
 )
 from app.services import calendar as cal_service
-from app.services.calendar import _get_service
 from app.services import whatsapp as wa_service
 from app.utils import metrics
-from app.utils.parser import parse_estado
 from app.utils.security import mask_phone
 from app.utils.slots import format_date_es
 from app.handlers.conversation import clean_expired_states
@@ -45,17 +43,6 @@ def job_sync_citas_manuales():
     try:
         events = cal_service.get_eventos_manuales_sin_confirmar()
         for ev in events:
-            # Re-check idempotency against live data before sending
-            service = _get_service()
-            fresh = service.events().get(
-                calendarId=GOOGLE_CALENDAR_ID,
-                eventId=ev['id']
-            ).execute(num_retries=2)
-            fresh_desc = fresh.get('description', '') or ''
-            if parse_estado(fresh_desc) == 'confirmada':
-                logger.info(f"[JOB] Manual event {ev['id']} already confirmed, skipping")
-                continue
-
             nombre = ev['nombre']
             start_dt = ev['start']
             d = start_dt.date()
