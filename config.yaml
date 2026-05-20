@@ -3,6 +3,7 @@
 negocio:
   nombre: "DM Barber Shop"
   telefono_contacto: "+34 676 27 38 00"
+  admin_phone: ""   # Fallback si no se define ADMIN_PHONE en .env. Solo digitos, sin '+' ni espacios.
 
 # Horario de apertura por dia de la semana.
 # Claves validas: lunes, martes, miercoles, jueves, viernes, sabado, domingo.
@@ -60,8 +61,8 @@ recordatorio_horas_antes:
 
 # Activar o desactivar el envio de mensajes automaticos.
 envios:
-  recordatorios: true
-  confirmaciones: true
+  recordatorios: false
+  confirmaciones: false
 
 # Evento especial — activa una cuarta opcion "Cita {nombre}" en el menu principal.
 # Para activarlo: pon activo: true, rellena nombre y dias.
