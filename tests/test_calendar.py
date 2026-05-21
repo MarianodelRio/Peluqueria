@@ -302,7 +302,7 @@ class TestReservarCita:
 
     def test_slot_taken(self, cal_with_service):
         cal, svc = cal_with_service
-        with patch.object(cal, "slot_sigue_libre", return_value=False):
+        with patch("app.services.calendar.service.slot_sigue_libre", return_value=False):
             event_id, reason = cal.reservar_cita(
                 date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )
@@ -311,8 +311,8 @@ class TestReservarCita:
 
     def test_calendar_api_error(self, cal_with_service):
         cal, svc = cal_with_service
-        with patch.object(cal, "slot_sigue_libre", return_value=True), \
-             patch.object(cal, "crear_cita", return_value=None):
+        with patch("app.services.calendar.service.slot_sigue_libre", return_value=True), \
+             patch("app.services.calendar.service.crear_cita", return_value=None):
             event_id, reason = cal.reservar_cita(
                 date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )

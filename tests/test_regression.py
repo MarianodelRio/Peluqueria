@@ -190,19 +190,15 @@ class TestPhoneNormalisationInCalendar:
 
     def test_get_citas_futuras_finds_plus_prefix(self):
         import app.services.calendar as cal
-        if hasattr(cal._thread_local, "service"):
-            del cal._thread_local.service
         svc = self._make_service("Telefono: +34600000001\nEstado: confirmada")
-        with patch("app.services.calendar._get_service", return_value=svc):
+        with patch.object(cal.client, "get_service", return_value=svc):
             citas = cal.get_citas_futuras("34600000001")
         assert len(citas) == 1
 
     def test_get_citas_futuras_finds_no_country_code(self):
         import app.services.calendar as cal
-        if hasattr(cal._thread_local, "service"):
-            del cal._thread_local.service
         svc = self._make_service("Telefono: 600000001\nEstado: confirmada")
-        with patch("app.services.calendar._get_service", return_value=svc):
+        with patch.object(cal.client, "get_service", return_value=svc):
             citas = cal.get_citas_futuras("34600000001")
         assert len(citas) == 1
 
