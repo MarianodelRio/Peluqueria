@@ -68,9 +68,9 @@ def mock_service():
 
 @pytest.fixture
 def cal_with_service(mock_service):
-    """Patch _get_service to return mock_service."""
-    with patch("app.services.calendar._get_service", return_value=mock_service):
-        import app.services.calendar as cal
+    """Patch client.get_service to return mock_service (covers service.py and repository.py calls)."""
+    import app.services.calendar as cal
+    with patch.object(cal.client, "get_service", return_value=mock_service):
         yield cal, mock_service
 
 
@@ -845,7 +845,7 @@ class TestGetSlotsDisponiblesRange:
 
         fixed_now = TZ.localize(datetime(2026, 3, 24, 12, 30, 0))
 
-        with patch("app.services.calendar.datetime") as mock_dt:
+        with patch("app.services.calendar.service.datetime") as mock_dt:
             mock_dt.now.return_value = fixed_now
             mock_dt.fromisoformat = datetime.fromisoformat
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
@@ -1238,7 +1238,7 @@ class TestGetSlotsDisponiblesEvento:
 
         d = date(2099, 12, 25)
         dias = {d.isoformat(): [["10:00", "12:00"]]}
-        with patch("app.services.calendar.EVENTO_DIAS", dias):
+        with patch("app.services.calendar.service.EVENTO_DIAS", dias):
             slots = cal_module.get_slots_disponibles_evento(d)
         assert "10:00" in slots
         assert "11:30" in slots
@@ -1248,7 +1248,7 @@ class TestGetSlotsDisponiblesEvento:
         import app.services.calendar as cal_module
         cal, svc = cal_with_service
         d = date(2099, 12, 26)
-        with patch("app.services.calendar.EVENTO_DIAS", {}):
+        with patch("app.services.calendar.service.EVENTO_DIAS", {}):
             slots = cal_module.get_slots_disponibles_evento(d)
         assert slots == []
 
@@ -1260,7 +1260,7 @@ class TestGetSlotsDisponiblesEvento:
 
         d = date(2099, 12, 25)
         dias = {d.isoformat(): [["10:00", "12:00"]]}
-        with patch("app.services.calendar.EVENTO_DIAS", dias):
+        with patch("app.services.calendar.service.EVENTO_DIAS", dias):
             cal_module.get_slots_disponibles_evento(d)
         evt_key = f"evt_{cal_module._slot_cache_key(d, 30, 30)}"
         assert evt_key in cal_module._slot_cache

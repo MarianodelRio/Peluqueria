@@ -114,7 +114,7 @@ class TestBookSelectService:
     def test_service_corte_transitions_to_select_day(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
-        mock_cal.get_slots_disponibles_range.return_value = {date(2026, 3, 23): ["10:00", "10:30"], date(2026, 3, 24): ["10:00", "10:30"]}
+        mock_cal.get_slots_disponibles_for_days.return_value = {date(2026, 3, 23): ["10:00", "10:30"], date(2026, 3, 24): ["10:00", "10:30"]}
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23), date(2026, 3, 24)]):
             send(interactive_id="service_corte")
@@ -124,7 +124,7 @@ class TestBookSelectService:
 
     def test_service_mechas_has_60_min_duration(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
-        mock_cal.get_slots_disponibles_range.return_value = {date(2026, 3, 23): ["10:00"]}
+        mock_cal.get_slots_disponibles_for_days.return_value = {date(2026, 3, 23): ["10:00"]}
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23)]):
             send(interactive_id="service_mechas")
@@ -137,7 +137,7 @@ class TestBookSelectService:
         assert conv._states.get(PHONE) is None
 
     def test_no_days_available_shows_message(self, mock_wa, mock_cal):
-        mock_cal.get_slots_disponibles_range.return_value = {}
+        mock_cal.get_slots_disponibles_for_days.return_value = {}
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23)]):
             send(interactive_id="service_corte")
@@ -641,7 +641,7 @@ class TestPerPhoneLock:
 
 class TestBookSelectServiceRangeFetch:
     def test_handle_book_select_service_uses_range_call(self, mock_wa, mock_cal):
-        """After service-pick, get_slots_disponibles_range is called once and get_slots_disponibles is not called."""
+        """After service-pick, get_slots_disponibles_for_days is called once and get_slots_disponibles is not called."""
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
 
@@ -649,7 +649,7 @@ class TestBookSelectServiceRangeFetch:
         days = [today + timedelta(days=i) for i in range(15)]
 
         slots_by_day = {d: ["10:00", "10:30"] for d in days}
-        mock_cal.get_slots_disponibles_range.return_value = slots_by_day
+        mock_cal.get_slots_disponibles_for_days.return_value = slots_by_day
         mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
 
         state = conv._get(PHONE)
@@ -658,11 +658,11 @@ class TestBookSelectServiceRangeFetch:
         with patch("app.handlers.conversation.get_next_days", return_value=days):
             send(interactive_id="service_corte")
 
-        assert mock_cal.get_slots_disponibles_range.call_count == 1
+        assert mock_cal.get_slots_disponibles_for_days.call_count == 1
         assert mock_cal.get_slots_disponibles.call_count == 0
 
     def test_handle_book_select_service_then_select_day_no_extra_range_call(self, mock_wa, mock_cal):
-        """After service-pick then day-pick, range is called only once (at service step)."""
+        """After service-pick then day-pick, for_days is called only once (at service step)."""
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
 
@@ -670,7 +670,7 @@ class TestBookSelectServiceRangeFetch:
         days = [today + timedelta(days=i) for i in range(15)]
 
         slots_by_day = {d: ["10:00", "10:30"] for d in days}
-        mock_cal.get_slots_disponibles_range.return_value = slots_by_day
+        mock_cal.get_slots_disponibles_for_days.return_value = slots_by_day
         mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
 
         state = conv._get(PHONE)
@@ -683,14 +683,14 @@ class TestBookSelectServiceRangeFetch:
         day_id = f"day_{days[1].isoformat()}"
         send(interactive_id=day_id)
 
-        # range should still be called only once (from the service step)
-        assert mock_cal.get_slots_disponibles_range.call_count == 1
+        # for_days should still be called only once (from the service step)
+        assert mock_cal.get_slots_disponibles_for_days.call_count == 1
 
 
 # ── Event booking flow ────────────────────────────────────────────────────────
 
 class TestEventBookingFlow:
-    """Tests for the special-event booking path (is_event=True)."""
+    """Tests for the special-event booking path (mode='evento')."""
 
     def test_menu_book_event_inactive_shows_menu(self, mock_wa, mock_cal):
         """menu_book_event is a no-op when EVENTO_ACTIVO is False — stays at MENU."""
@@ -702,31 +702,31 @@ class TestEventBookingFlow:
         state = conv._get(PHONE)
         assert state.step == conv.MENU
 
-    def test_menu_book_event_active_sets_is_event_true(self, mock_wa, mock_cal):
-        """menu_book_event when active sets is_event=True and goes to BOOK_SELECT_SERVICE."""
+    def test_menu_book_event_active_sets_mode_evento(self, mock_wa, mock_cal):
+        """menu_book_event when active sets mode='evento' and goes to BOOK_SELECT_SERVICE."""
         import app.handlers.conversation as conv
         with patch("app.handlers.conversation.EVENTO_ACTIVO", True):
             send(interactive_id="menu_book_event")
         state = conv._get(PHONE)
-        assert state.is_event is True
+        assert state.mode == 'evento'
         assert state.step == conv.BOOK_SELECT_SERVICE
 
-    def test_is_event_false_by_default(self, mock_wa, mock_cal):
-        """Normal menu_book path leaves is_event=False."""
+    def test_mode_normal_by_default(self, mock_wa, mock_cal):
+        """Normal menu_book path leaves mode='normal'."""
         import app.handlers.conversation as conv
         send(interactive_id="menu_book")
         state = conv._get(PHONE)
-        assert state.is_event is False
+        assert state.mode == 'normal'
 
     def test_event_service_select_uses_get_event_days(self, mock_wa, mock_cal):
-        """When is_event, _handle_book_select_service calls get_event_days (not get_next_days)."""
+        """When mode='evento', _handle_book_select_service calls get_event_days (not get_next_days)."""
         import app.handlers.conversation as conv
         event_day = date(2099, 12, 25)
-        mock_cal.get_slots_disponibles_evento_range.return_value = {event_day: ["10:00", "11:00"]}
+        mock_cal.get_slots_disponibles_for_days.return_value = {event_day: ["10:00", "11:00"]}
 
         state = conv._get(PHONE)
         state.step = conv.BOOK_SELECT_SERVICE
-        state.is_event = True
+        state.mode = 'evento'
 
         with patch("app.handlers.conversation.get_event_days", return_value=[event_day]) as mock_ged, \
              patch("app.handlers.conversation.get_next_days") as mock_gnd:
@@ -736,11 +736,11 @@ class TestEventBookingFlow:
         mock_gnd.assert_not_called()
 
     def test_event_service_select_no_days_shows_event_message(self, mock_wa, mock_cal):
-        """When is_event and no event days exist, show msg_evento_sin_dias."""
+        """When mode='evento' and no event days exist, show msg_evento_sin_dias."""
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
         state.step = conv.BOOK_SELECT_SERVICE
-        state.is_event = True
+        state.mode = 'evento'
 
         with patch("app.handlers.conversation.get_event_days", return_value=[]):
             send(interactive_id="service_corte")
@@ -750,32 +750,34 @@ class TestEventBookingFlow:
         assert "evento" in text_call.lower()
 
     def test_event_select_day_calls_get_slots_disponibles_evento(self, mock_wa, mock_cal):
-        """When is_event, selecting a day calls get_slots_disponibles_evento, not get_slots_disponibles."""
+        """When mode='evento', selecting a day calls get_slots_disponibles with mode='evento'."""
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
         event_day = date(2099, 12, 25)
 
         state = conv._get(PHONE)
         state.step = conv.BOOK_SELECT_DAY
-        state.is_event = True
+        state.mode = 'evento'
         state.selected_service = SERVICIOS["corte"]
         state.available_days = [event_day]
 
-        mock_cal.get_slots_disponibles_evento.return_value = ["10:00", "10:30"]
+        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
         send(interactive_id=f"day_{event_day.isoformat()}")
 
-        mock_cal.get_slots_disponibles_evento.assert_called_once()
-        mock_cal.get_slots_disponibles.assert_not_called()
+        mock_cal.get_slots_disponibles.assert_called_once()
+        call_kwargs = mock_cal.get_slots_disponibles.call_args
+        args, kwargs = call_kwargs
+        assert kwargs.get('mode') == 'evento'
 
     def test_event_flow_slot_taken_uses_get_slots_disponibles_evento(self, mock_wa, mock_cal):
-        """When is_event and slot_taken, alternatives fetched via get_slots_disponibles_evento."""
+        """When mode='evento' and slot_taken, alternatives fetched via get_slots_disponibles with mode='evento'."""
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
         event_day = date(2099, 12, 25)
 
         state = conv._get(PHONE)
         state.step = conv.BOOK_ENTER_NAME
-        state.is_event = True
+        state.mode = 'evento'
         state.selected_service = SERVICIOS["corte"]
         state.selected_date = event_day
         state.selected_slot = "10:00"
@@ -783,20 +785,22 @@ class TestEventBookingFlow:
         state.available_slots = ["10:00", "10:30"]
 
         mock_cal.reservar_cita.return_value = (None, "slot_taken")
-        mock_cal.get_slots_disponibles_evento.return_value = ["10:30", "11:00"]
+        mock_cal.get_slots_disponibles.return_value = ["10:30", "11:00"]
 
         send(text="Ana García")
 
-        mock_cal.get_slots_disponibles_evento.assert_called_once()
-        mock_cal.get_slots_disponibles.assert_not_called()
+        mock_cal.get_slots_disponibles.assert_called_once()
+        call_kwargs = mock_cal.get_slots_disponibles.call_args
+        args, kwargs = call_kwargs
+        assert kwargs.get('mode') == 'evento'
 
-    def test_to_menu_resets_is_event(self, mock_wa, mock_cal):
-        """After _to_menu, is_event is gone (state is cleared by _clear)."""
+    def test_to_menu_resets_mode(self, mock_wa, mock_cal):
+        """After _to_menu, mode is reset (state is cleared by _clear)."""
         import app.handlers.conversation as conv
         state = conv._get(PHONE)
-        state.is_event = True
+        state.mode = 'evento'
         state.step = conv.BOOK_SELECT_DAY
         send(interactive_id="back_to_menu")
-        # State was cleared; new state would have default is_event=False
+        # State was cleared; new state would have default mode='normal'
         new_state = conv._get(PHONE)
-        assert new_state.is_event is False
+        assert new_state.mode == 'normal'
