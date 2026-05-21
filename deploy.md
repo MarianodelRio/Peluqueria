@@ -592,6 +592,118 @@ Cuando el estado muestre **APPROVED** en verde puedes continuar. Mientras estén
 
 ---
 
+## 9B. TEMPLATE `alerta_sistema`
+
+Este template es el que usa el watchdog para alertar al administrador del bot cuando detecta un problema.
+
+> ⚠️ Al igual que los otros templates, puede tardar entre 1 hora y 48 horas en aprobarse.
+
+Ve a: **Meta Business Suite → Cuenta de WhatsApp → Herramientas → Plantillas de mensajes → Crear plantilla**
+
+| Campo | Valor |
+|---|---|
+| Nombre | `alerta_sistema` |
+| Categoría | `UTILITY` |
+| Idioma | `Español (España)` |
+| Cabecera | (ninguna) |
+| Pie de página | (ninguno) |
+| Botones | (ninguno) |
+
+**Cuerpo del mensaje:**
+```
+*[ALERTA BOT]* {{1}}
+Hora: {{2}}
+Detalle: {{3}}
+```
+
+Parámetros:
+- `{{1}}` = etiqueta del problema (por ejemplo: `BOT CAIDO`, `RAM CRITICA 95%`)
+- `{{2}}` = fecha y hora del problema (formato `DD/MM/YYYY HH:MM`)
+- `{{3}}` = detalle técnico del error
+
+---
+
+## 9C. CONFIGURACIÓN DEL WATCHDOG
+
+El watchdog es un script independiente (`watchdog.py`) que se lanza cada 5 minutos mediante cron y comprueba:
+
+1. **Bot activo** — hace GET `/health` y alerta si el proceso no responde o el calendario falla
+2. **RAM** — alerta si el uso supera el umbral (por defecto 90 %)
+3. **Disco** — alerta si el uso supera el umbral (por defecto 90 %)
+4. **Pico de errores** — compara contadores de `/metrics` respecto a la ejecución anterior y alerta si el delta supera el umbral (por defecto 3 errores nuevos)
+
+Los cooldowns de cada alerta se persisten en un fichero JSON (por defecto `/tmp/watchdog_state.json`) para evitar spam.
+
+### Añadir `ADMIN_PHONE` al `.env`
+
+El watchdog lee `ADMIN_PHONE` del `.env` (o de `config.yaml → negocio.admin_phone` como fallback). Asegúrate de que está presente:
+
+```bash
+nano /home/peluqueria/app/.env
+```
+
+Añade la línea (dígitos solamente, sin `+`, sin espacios):
+
+```env
+ADMIN_PHONE=34612345678
+```
+
+### Variables opcionales del watchdog
+
+Las siguientes variables se pueden añadir al `.env` para ajustar el comportamiento. Todas tienen valor por defecto y son opcionales:
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `WATCHDOG_BOT_URL` | `http://localhost:8000` | URL base del bot |
+| `WATCHDOG_TEMPLATE_NAME` | `alerta_sistema` | Nombre del template de alerta |
+| `WATCHDOG_STATE_FILE` | `/tmp/watchdog_state.json` | Ruta del fichero de estado |
+| `WATCHDOG_RAM_CRITICAL_PCT` | `90` | Umbral de RAM en % para disparar alerta |
+| `WATCHDOG_DISK_CRITICAL_PCT` | `90` | Umbral de disco en % para disparar alerta |
+| `WATCHDOG_ERROR_SPIKE_THRESHOLD` | `3` | Delta de errores nuevos para disparar alerta |
+
+### Crear directorio de logs del watchdog
+
+```bash
+# Si el directorio /var/log/peluqueria no existe aún:
+sudo mkdir -p /var/log/peluqueria
+sudo chown peluqueria:peluqueria /var/log/peluqueria
+```
+
+### Instalar la entrada de cron
+
+```bash
+sudo su - peluqueria
+crontab -e
+```
+
+Añade esta línea al final:
+
+```
+*/5 * * * * cd /home/peluqueria/app && venv/bin/python watchdog.py >> /var/log/peluqueria/watchdog.log 2>&1
+```
+
+Guarda y cierra el editor. Verifica que la entrada quedó registrada:
+
+```bash
+crontab -l
+```
+
+### Verificación manual
+
+```bash
+# Ejecutar una vez a mano para comprobar que funciona
+cd /home/peluqueria/app
+source venv/bin/activate
+python watchdog.py
+# Debe imprimir: [WATCHDOG] All checks OK
+# (o la alerta correspondiente si algo falla)
+
+# Ver el log en tiempo real tras la primera ejecución automática
+tail -f /var/log/peluqueria/watchdog.log
+```
+
+---
+
 ## 10. CONEXIÓN FINAL
 
 ### 10.1 Actualizar .env con todos los valores reales
@@ -1006,6 +1118,9 @@ sudo journalctl --vacuum-time=14d
 - [ ] Suscripción al evento `messages` activa
 - [ ] Template `confirmacion_cita` en estado **APPROVED**
 - [ ] Template `recordatorio_cita` en estado **APPROVED**
+- [ ] Template `alerta_sistema` en estado **APPROVED**
+- [ ] Entrada de cron del watchdog visible en `crontab -l`
+- [ ] `/var/log/peluqueria/watchdog.log` se actualiza cada 5 minutos
 
 ### Prueba funcional completa
 - [ ] Enviar mensaje → bot muestra menú
