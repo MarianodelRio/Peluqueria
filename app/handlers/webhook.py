@@ -20,14 +20,14 @@ import json
 import logging
 import re
 import threading
-import time
-from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 
 from app.config import MAX_CONCURRENT_HANDLERS, WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN
 from app.handlers.conversation import handle_message
 from app.utils import metrics
+from app.utils.dedup import MessageDeduplicator
+from app.utils.rate_limiter import RateLimiter
 from app.utils.security import mask_phone
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,11 @@ router = APIRouter()
 # ── Concurrency guard ──────────────────────────────────────────────────────
 # Limits concurrent background handlers to prevent thread pool exhaustion.
 _handler_semaphore = threading.Semaphore(MAX_CONCURRENT_HANDLERS)
+
+# ── Rate limiters and deduplicator ─────────────────────────────────────────
+ip_rate_limiter    = RateLimiter(limit=60, window_seconds=60)
+phone_rate_limiter = RateLimiter(limit=20, window_seconds=60)
+_deduplicator      = MessageDeduplicator(ttl_minutes=10)
 
 
 def _handle_with_semaphore(phone: str, text, interactive_id):
@@ -51,68 +56,9 @@ def _handle_with_semaphore(phone: str, text, interactive_id):
 
 
 # ── Constants ──────────────────────────────────────────────────────────────
-MAX_PAYLOAD_BYTES      = 65_536   # 64 KB — plenty for any valid Meta webhook
-_MAX_TEXT_LEN          = 4_096    # WhatsApp text message hard limit
-_MAX_INTERACTIVE_ID_LEN = 256     # WhatsApp interactive payload ID limit
-
-# ── Message deduplication ──────────────────────────────────────────────────
-_processed_ids: dict[str, datetime] = {}
-_processed_ids_lock = threading.Lock()
-_PROCESSED_ID_TTL = timedelta(minutes=10)
-
-
-def _is_duplicate(message_id: str) -> bool:
-    """Return True if this message_id was already processed (with TTL cleanup)."""
-    now = datetime.now()
-    with _processed_ids_lock:
-        expired = [k for k, ts in _processed_ids.items() if now - ts > _PROCESSED_ID_TTL]
-        for k in expired:
-            del _processed_ids[k]
-        if message_id in _processed_ids:
-            return True
-        _processed_ids[message_id] = now
-        return False
-
-
-# ── Rate limiting — per IP ─────────────────────────────────────────────────
-_rate_buckets: dict[str, list] = {}
-_rate_lock = threading.Lock()
-_RATE_LIMIT  = 60   # requests
-_RATE_WINDOW = 60   # seconds
-
-
-def _check_rate_limit(ip: str) -> bool:
-    """Return True if within limit. Stale bucket entries are filtered on each call."""
-    now = time.time()
-    with _rate_lock:
-        bucket = [ts for ts in _rate_buckets.get(ip, []) if now - ts < _RATE_WINDOW]
-        if len(bucket) >= _RATE_LIMIT:
-            _rate_buckets[ip] = bucket
-            return False
-        bucket.append(now)
-        _rate_buckets[ip] = bucket
-        return True
-
-
-# ── Rate limiting — per phone ──────────────────────────────────────────────
-_phone_rate_buckets: dict[str, list] = {}
-_phone_rate_lock = threading.Lock()
-_PHONE_RATE_LIMIT  = 20   # messages per phone
-_PHONE_RATE_WINDOW = 60   # seconds
-
-
-def _check_phone_rate_limit(phone: str) -> bool:
-    """Return True if within per-phone limit."""
-    now = time.time()
-    with _phone_rate_lock:
-        bucket = [ts for ts in _phone_rate_buckets.get(phone, []) if now - ts < _PHONE_RATE_WINDOW]
-        if len(bucket) >= _PHONE_RATE_LIMIT:
-            _phone_rate_buckets[phone] = bucket
-            return False
-        bucket.append(now)
-        _phone_rate_buckets[phone] = bucket
-        return True
-
+MAX_PAYLOAD_BYTES       = 65_536   # 64 KB — plenty for any valid Meta webhook
+_MAX_TEXT_LEN           = 4_096    # WhatsApp text message hard limit
+_MAX_INTERACTIVE_ID_LEN = 256      # WhatsApp interactive payload ID limit
 
 # ── Input helpers ──────────────────────────────────────────────────────────
 _PHONE_RE = re.compile(r'^\d{7,15}$')
@@ -145,6 +91,103 @@ def _verify_signature(body_bytes: bytes, signature_header: str) -> bool:
     return _hmac.compare_digest(expected, received)
 
 
+# ── Request helpers ────────────────────────────────────────────────────────
+
+def _is_json_content(request: Request) -> bool:
+    ct = request.headers.get("content-type", "").split(";")[0].strip()
+    return ct == "application/json"
+
+
+async def _read_body_safely(request: Request, ip: str) -> bytes | None:
+    try:
+        body_bytes = await request.body()
+    except Exception:
+        return None
+    if len(body_bytes) > MAX_PAYLOAD_BYTES:
+        logger.warning(f"[WEBHOOK] Oversized payload ({len(body_bytes)} B) from {ip}")
+        raise HTTPException(status_code=413, detail="Payload Too Large")
+    return body_bytes
+
+
+def _parse_json_safely(body_bytes: bytes) -> dict | None:
+    try:
+        return json.loads(body_bytes)
+    except Exception:
+        return None
+
+
+def _iter_messages(body: dict):
+    entry = body.get("entry", [])
+    if not entry:
+        return
+    changes = entry[0].get("changes", [])
+    if not changes:
+        return
+    value = changes[0].get("value", {})
+    yield from value.get("messages", [])
+
+
+def _extract_text(msg: dict, phone: str) -> str | None:
+    text = msg.get("text", {}).get("body", "").strip()
+    if not text:
+        return None
+    if len(text) > _MAX_TEXT_LEN:
+        logger.warning(f"[WEBHOOK] Text too long from {mask_phone(phone)}, truncating")
+        text = text[:_MAX_TEXT_LEN]
+    logger.info(f"[WEBHOOK] text from {mask_phone(phone)}: {text[:80]}")
+    return text
+
+
+def _extract_interactive_id(msg: dict, phone: str) -> str | None:
+    interactive = msg.get("interactive", {})
+    subtype = interactive.get("type", "")
+    if subtype == "button_reply":
+        id_ = interactive.get("button_reply", {}).get("id", "")
+    elif subtype == "list_reply":
+        id_ = interactive.get("list_reply", {}).get("id", "")
+    else:
+        return None
+    if not id_:
+        return None
+    if len(id_) > _MAX_INTERACTIVE_ID_LEN:
+        logger.warning(f"[WEBHOOK] interactive_id too long from {mask_phone(phone)}, skipping")
+        return None
+    logger.info(f"[WEBHOOK] interactive from {mask_phone(phone)}: {id_}")
+    return id_
+
+
+def _validate_and_extract(msg: dict, ip: str) -> dict | None:
+    phone = msg.get("from", "")
+    if not phone:
+        return None
+    if not _validate_phone(phone):
+        logger.warning(f"[WEBHOOK] Invalid phone format: {mask_phone(phone)}")
+        return None
+    if not phone_rate_limiter.check(phone):
+        logger.warning(f"[WEBHOOK] Phone rate limit exceeded for {mask_phone(phone)}")
+        return None
+    metrics.inc('messages_received')
+    message_id = msg.get("id", "")
+    if message_id and _deduplicator.seen(message_id):
+        logger.info(f"[WEBHOOK] Duplicate msg_id={message_id} from {mask_phone(phone)}, skipping")
+        return None
+    msg_type = msg.get("type", "")
+    if msg_type == "text":
+        text = _extract_text(msg, phone)
+        if text is None:
+            return None
+        return {"phone": phone, "text": text, "interactive_id": None}
+    elif msg_type == "interactive":
+        iid = _extract_interactive_id(msg, phone)
+        if iid is None:
+            return None
+        return {"phone": phone, "text": None, "interactive_id": iid}
+    else:
+        # audio, image, sticker, etc. → trigger fallback menu
+        logger.info(f"[WEBHOOK] unsupported type '{msg_type}' from {mask_phone(phone)} → fallback")
+        return {"phone": phone, "text": "__unknown__", "interactive_id": None}
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
 @router.get("/webhook")
@@ -172,112 +215,31 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
     """
     ip = request.client.host if request.client else "unknown"
 
-    # 1. IP rate limit
-    if not _check_rate_limit(ip):
+    if not ip_rate_limiter.check(ip):
         logger.warning(f"[WEBHOOK] IP rate limit exceeded for {ip}")
         raise HTTPException(status_code=429, detail="Too Many Requests")
 
-    # 2. Content-Type must be application/json
-    content_type = request.headers.get("content-type", "").split(";")[0].strip()
-    if content_type != "application/json":
+    if not _is_json_content(request):
         return {"status": "ok"}
 
-    # 3. Read raw body bytes (must happen before JSON parse — required for HMAC)
-    try:
-        body_bytes = await request.body()
-    except Exception:
+    body_bytes = await _read_body_safely(request, ip)
+    if body_bytes is None:
         return {"status": "ok"}
 
-    # 4. Payload size limit
-    if len(body_bytes) > MAX_PAYLOAD_BYTES:
-        logger.warning(f"[WEBHOOK] Oversized payload ({len(body_bytes)} B) from {ip}")
-        raise HTTPException(status_code=413, detail="Payload Too Large")
-
-    # 5. HMAC-SHA256 signature verification
     signature = request.headers.get("x-hub-signature-256", "")
     if not _verify_signature(body_bytes, signature):
         logger.warning(f"[WEBHOOK] Invalid X-Hub-Signature-256 from {ip}")
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    # 6. Parse JSON
-    try:
-        body = json.loads(body_bytes)
-    except Exception:
+    body = _parse_json_safely(body_bytes)
+    if body is None:
         return {"status": "ok"}
 
     try:
-        entry = body.get("entry", [])
-        if not entry:
-            return {"status": "ok"}
-
-        changes = entry[0].get("changes", [])
-        if not changes:
-            return {"status": "ok"}
-
-        value    = changes[0].get("value", {})
-        messages = value.get("messages", [])
-
-        for msg in messages:
-            phone = msg.get("from", "")
-            if not phone:
-                continue
-
-            # 7. Validate phone format
-            if not _validate_phone(phone):
-                logger.warning(f"[WEBHOOK] Invalid phone format: {mask_phone(phone)}")
-                continue
-
-            # 8. Per-phone rate limit
-            if not _check_phone_rate_limit(phone):
-                logger.warning(f"[WEBHOOK] Phone rate limit exceeded for {mask_phone(phone)}")
-                continue
-
-            # 9. Count all inbound messages (before dedup) and deduplicate
-            metrics.inc('messages_received')
-            message_id = msg.get("id", "")
-            if message_id and _is_duplicate(message_id):
-                logger.info(f"[WEBHOOK] Duplicate msg_id={message_id} from {mask_phone(phone)}, skipping")
-                continue
-
-            msg_type: str       = msg.get("type", "")
-            text: str | None    = None
-            interactive_id: str | None = None
-
-            if msg_type == "text":
-                text = msg.get("text", {}).get("body", "").strip()
-                if not text:
-                    continue
-                # 10. Text length limit
-                if len(text) > _MAX_TEXT_LEN:
-                    logger.warning(f"[WEBHOOK] Text too long from {mask_phone(phone)}, truncating")
-                    text = text[:_MAX_TEXT_LEN]
-                logger.info(f"[WEBHOOK] text from {mask_phone(phone)}: {text[:80]}")
-
-            elif msg_type == "interactive":
-                interactive = msg.get("interactive", {})
-                subtype     = interactive.get("type", "")
-                if subtype == "button_reply":
-                    interactive_id = interactive.get("button_reply", {}).get("id", "")
-                elif subtype == "list_reply":
-                    interactive_id = interactive.get("list_reply", {}).get("id", "")
-                if not interactive_id:
-                    continue
-                # 11. Interactive ID length limit
-                if len(interactive_id) > _MAX_INTERACTIVE_ID_LEN:
-                    logger.warning(f"[WEBHOOK] interactive_id too long from {mask_phone(phone)}, skipping")
-                    continue
-                logger.info(f"[WEBHOOK] interactive from {mask_phone(phone)}: {interactive_id}")
-
-            else:
-                # audio, image, sticker, etc. → trigger fallback menu
-                logger.info(f"[WEBHOOK] unsupported type '{msg_type}' from {mask_phone(phone)} → fallback")
-                text = "__unknown__"
-
-            # Dispatch to thread pool — never blocks the event loop
-            background_tasks.add_task(
-                _handle_with_semaphore, phone=phone, text=text, interactive_id=interactive_id
-            )
-
+        for msg in _iter_messages(body):
+            kwargs = _validate_and_extract(msg, ip)
+            if kwargs:
+                background_tasks.add_task(_handle_with_semaphore, **kwargs)
     except Exception as e:
         logger.error(f"[WEBHOOK] Error parsing payload: {e}", exc_info=True)
 

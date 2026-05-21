@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 from fastapi import FastAPI
 
-from app.handlers.webhook import router, _processed_ids
+from app.handlers.webhook import router, _deduplicator
 
 # Minimal app for testing
 _app = FastAPI()
@@ -21,9 +21,9 @@ VERIFY_TOKEN = "test_token"
 @pytest.fixture(autouse=True)
 def clear_dedup():
     """Reset deduplication cache between tests."""
-    _processed_ids.clear()
+    _deduplicator._seen.clear()
     yield
-    _processed_ids.clear()
+    _deduplicator._seen.clear()
 
 
 @pytest.fixture
