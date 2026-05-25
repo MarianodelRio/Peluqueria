@@ -1,9 +1,12 @@
 import hashlib
 import hmac
+import json
 import logging
 from datetime import datetime, timezone
 
 import httpx
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from starlette.responses import PlainTextResponse
 
 from data_plane.engine.outputs import (
     Output,
@@ -170,3 +173,33 @@ class WhatsAppAdapter(ChannelAdapter):
 
     def close(self) -> None:
         self._client.close()
+
+
+def make_router(adapter: WhatsAppAdapter) -> APIRouter:
+    """Return an APIRouter with the two WhatsApp webhook handlers."""
+    from data_plane._process import _process_message  # avoid circular at module load
+
+    router = APIRouter()
+
+    @router.get("/webhook/whatsapp")
+    def whatsapp_verify(request: Request):
+        mode = request.query_params.get("hub.mode")
+        token = request.query_params.get("hub.verify_token")
+        challenge = request.query_params.get("hub.challenge")
+        if mode == "subscribe" and token == adapter.verify_token:
+            return PlainTextResponse(challenge)
+        raise HTTPException(status_code=403)
+
+    @router.post("/webhook/whatsapp")
+    async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
+        body_bytes = await request.body()
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        if not adapter.verify_signature(body_bytes, signature):
+            raise HTTPException(status_code=401)
+        raw_payload = json.loads(body_bytes)
+        background_tasks.add_task(
+            _process_message, raw_payload, adapter, request.app.state.bot
+        )
+        return {"status": "ok"}
+
+    return router

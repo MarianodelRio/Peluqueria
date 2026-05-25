@@ -26,3 +26,6 @@ class ChannelAdapter(ABC):
     @property
     @abstractmethod
     def capabilities(self) -> ChannelCapabilities: ...
+
+    def close(self) -> None:
+        pass

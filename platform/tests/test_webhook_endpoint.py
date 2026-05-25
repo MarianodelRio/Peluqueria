@@ -10,13 +10,12 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from data_plane.main import app
+from data_plane.main import create_app
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-_FLOW_PATH = str(Path(__file__).parent / "flows" / "toy_flow.yaml")
 _APP_SECRET = "integration_test_secret"
 _VERIFY_TOKEN = "integration_verify_token"
 
@@ -28,14 +27,12 @@ _VERIFY_TOKEN = "integration_verify_token"
 
 @pytest.fixture()
 def client(monkeypatch):
-    monkeypatch.setenv("TENANT_ID", "tenant_integration")
-    monkeypatch.setenv("WHATSAPP_PHONE_NUMBER_ID", "99999")
-    monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", "access_token_test")
-    monkeypatch.setenv("WHATSAPP_APP_SECRET", _APP_SECRET)
-    monkeypatch.setenv("WHATSAPP_VERIFY_TOKEN", _VERIFY_TOKEN)
-    monkeypatch.setenv("FLOW_PATH", _FLOW_PATH)
+    monkeypatch.setenv(
+        "TENANT_CONFIG_PATH",
+        str(Path(__file__).parent / "configs" / "whatsapp_tenant.yaml"),
+    )
 
-    with TestClient(app) as c:
+    with TestClient(create_app()) as c:
         yield c
 
 

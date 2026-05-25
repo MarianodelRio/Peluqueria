@@ -1,0 +1,13 @@
+tenant_id: tenant_integration
+flow_path: ../flows/toy_flow.yaml
+
+channel:
+  type: whatsapp
+  phone_number_id: "99999"
+  access_token: "access_token_test"
+  app_secret: "integration_test_secret"
+  verify_token: "integration_verify_token"
+
+connectors:
+  calendar:
+    type: mock

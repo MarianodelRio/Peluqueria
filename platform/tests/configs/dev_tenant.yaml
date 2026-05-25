@@ -1,0 +1,9 @@
+tenant_id: test_tenant
+flow_path: ../flows/toy_flow.yaml
+
+channel:
+  type: http_dev
+
+connectors:
+  calendar:
+    type: mock

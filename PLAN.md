@@ -156,6 +156,44 @@
 
 ---
 
+#### Fase 3b — HTTP Dev Channel + configuración de tenant
+
+**Objetivo.** Añadir un segundo canal de pleno derecho (`HttpDevChannelAdapter`) que permite probar el bot localmente vía HTTP sin depender de ningún proveedor externo, y formalizar el mecanismo de configuración del container para que el canal (y en el futuro los conectores) se seleccione desde un YAML de tenant en lugar de variables de entorno sueltas.
+
+**Decisiones tomadas en esta fase.**
+- La configuración del container vive en un YAML de tenant (`TENANT_CONFIG_PATH`). Contiene `tenant_id`, `flow_path`, `channel` (tipo + credenciales) y `connectors`. El lifespan carga este YAML al arrancar, igual que hará en F6 con el payload del Control Plane.
+- Cada canal expone una función `make_router(adapter) → APIRouter` con sus endpoints propios. `main.py` no conoce los endpoints de ningún canal — solo incluye el router devuelto por el factory.
+- El `ChannelAdapter` ABC añade `close()` con implementación no-op por defecto.
+- `POST /inbound` procesa síncronamente y devuelve `{"status": "ok"}`. Los outputs del bot se acumulan en una cola interna (`deque(maxlen=200)`). `GET /messages` drena y devuelve la cola — modelo pull, sin SSE.
+- `HttpDevChannelAdapter` declara capabilities sin restricciones artificiales (`max_buttons=10`, `max_list_rows=20`) para que el debugging sea limpio.
+- Sin autenticación en los endpoints del dev channel — canal de uso local.
+
+**Tareas.**
+1. Añadir `close() → None` (no-op) al `ChannelAdapter` ABC.
+2. `TenantConfig` en `data_plane/config.py`: dataclass que parsea el YAML y valida la estructura mínima (`tenant_id`, `flow_path`, `channel.type`).
+3. Factory de canal en `adapters/channel/factory.py`: `build_channel(config) → tuple[ChannelAdapter, APIRouter]`.
+4. `make_router(adapter)` en `whatsapp.py`: extrae los endpoints WhatsApp de `main.py` a su propio router.
+5. `HttpDevChannelAdapter` + `make_router()` en `adapters/channel/http_dev.py`: `receive`, `send` (encola), `drain`, `verify_signature` (siempre True), `capabilities`, `close`.
+6. Reescribir el lifespan de `main.py` para usar `TenantConfig` + factory de canal.
+7. Tests unitarios de `HttpDevChannelAdapter` (`test_http_dev_adapter.py`): receive texto/button/list/malformado, send encola, drain vacía, verify_signature.
+8. Tests de integración de endpoints (`test_dev_channel_endpoint.py`): turno único, multi-turno, drain doble vacía la segunda vez.
+9. Actualizar `test_webhook_endpoint.py` para usar YAML de tenant en lugar de env vars sueltas.
+10. Añadir configs de tenant de prueba en `tests/configs/`.
+
+**Definición de hecho.**
+- `POST /inbound {"contact_id": "test", "text": "hola"}` sobre `toy_flow` → `GET /messages` devuelve los outputs del estado `MENU`.
+- Tres mensajes consecutivos del mismo `contact_id` avanzan el estado hasta `CONFIRM`.
+- `GET /messages` por segunda vez devuelve lista vacía.
+- `test_webhook_endpoint.py` sigue pasando con la nueva estructura de config.
+- `make test` pasa. `make lint` pasa.
+
+**Fuera de alcance.**
+- SSE / WebSocket (pull con GET es suficiente).
+- Otros canales (Telegram, web chat).
+- Configuración de conectores reales desde el YAML (los conectores siguen siendo mock en M2).
+
+---
+
 #### Fase 4 — Primer conector real: GoogleCalendarAdapter
 
 **Objetivo.** Sustituir el mock connector por un conector real contra Google Calendar.
@@ -445,7 +483,7 @@
 
 > Esta sección se va actualizando a mano según se avanza.
 
-- **Fase actual:** Fase 1 — Bot Engine standalone.
-- **Fases cerradas:** ninguna.
-- **Decisiones cerradas:** las recogidas en `arquitectura.md` (modelo de dos planos, scheduler push, containers siempre encendidos, etc.).
-- **Próximo paso concreto:** decidir el stack tecnológico de F0 y arrancar el scaffolding real.
+- **Fase actual:** Fase 3b — HTTP Dev Channel + configuración de tenant.
+- **Fases cerradas:** F0 (scaffolding), F1 (Bot Engine standalone), F2 (Connector framework), F3 (Channel Adapter + WhatsApp).
+- **Decisiones cerradas:** stack tecnológico (FastAPI + uvicorn + uv + Python 3.14), formato de flow (YAML declarativo), motor FSM (intérprete propio), `StateStorePort` / `ConnectorPort` / `ChannelAdapter` como ports hexagonales, `degrade_output` para degradación de canal, scheduler push (ver `arquitectura.md`), containers siempre encendidos, config del container en YAML de tenant (`TENANT_CONFIG_PATH`), router por canal (`make_router` factory).
+- **Próximo paso concreto:** implementar F3b según su definición actualizada.
