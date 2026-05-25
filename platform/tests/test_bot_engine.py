@@ -72,7 +72,7 @@ def test_new_conversation_first_message_no_match_triggers_fallback_on_enter() ->
 
     assert len(outputs) == 2
     assert isinstance(outputs[0], SendTextOutput)
-    assert "Bienvenido" in outputs[0].text
+    assert "Welcome" in outputs[0].text
     assert isinstance(outputs[1], SendInteractiveButtonsOutput)
     assert outputs[1].buttons[0].id == "opt_book"
 
@@ -103,7 +103,7 @@ def test_button_reply_transitions_to_enter_name() -> None:
     assert saved.current_state == "ENTER_NAME"
     assert len(outputs) == 1
     assert isinstance(outputs[0], SendTextOutput)
-    assert "nombre" in outputs[0].text.lower()
+    assert "name" in outputs[0].text.lower()
 
 
 def test_text_captured_in_set_data_and_transitions_to_confirm() -> None:
@@ -217,7 +217,7 @@ def test_fallback_same_state_re_executes_on_enter() -> None:
     assert saved.current_state == "ENTER_NAME"
     assert len(outputs) == 1
     assert isinstance(outputs[0], SendTextOutput)
-    assert "nombre" in outputs[0].text.lower()
+    assert "name" in outputs[0].text.lower()
 
 
 def test_in_memory_state_store_persists_between_calls() -> None:
@@ -268,7 +268,7 @@ def test_end_to_end_three_messages_fresh_store():
     assert state1.current_state == "MENU"
     assert len(outputs1) == 2
     assert isinstance(outputs1[0], SendTextOutput)
-    assert "Bienvenido" in outputs1[0].text
+    assert "Welcome" in outputs1[0].text
     assert isinstance(outputs1[1], SendInteractiveButtonsOutput)
     assert outputs1[1].buttons[0].id == "opt_book"
 
@@ -280,7 +280,7 @@ def test_end_to_end_three_messages_fresh_store():
     assert state2.current_state == "ENTER_NAME"
     assert len(outputs2) == 1
     assert isinstance(outputs2[0], SendTextOutput)
-    assert "nombre" in outputs2[0].text.lower()
+    assert "name" in outputs2[0].text.lower()
 
     # Message 3: text "Carlos" → CONFIRM, set_data captured, connector invoked
     outputs3 = bot.handle_message(_msg(message_type=MessageType.TEXT, text="Carlos"))
@@ -289,4 +289,4 @@ def test_end_to_end_three_messages_fresh_store():
     assert state3.data["customer_name"] == "Carlos"
     assert len(outputs3) == 1
     assert isinstance(outputs3[0], SendTextOutput)
-    assert outputs3[0].text == "Slots listos."
+    assert outputs3[0].text == "Slots ready."

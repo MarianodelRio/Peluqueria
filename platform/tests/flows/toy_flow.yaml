@@ -9,12 +9,12 @@ states:
   MENU:
     on_enter:
       - action: send_text
-        text: "Bienvenido. Elige una opcion."
+        text: "Welcome. Choose an option."
       - action: send_interactive_buttons
-        body: "Opciones"
+        body: "Options"
         buttons:
           - id: "opt_book"
-            title: "Reservar"
+            title: "Book"
     transitions:
       - on_payload: "opt_book"
         target: ENTER_NAME
@@ -23,7 +23,7 @@ states:
   ENTER_NAME:
     on_enter:
       - action: send_text
-        text: "Escribe tu nombre."
+        text: "Enter your name."
     transitions:
       - on_type: text
         target: CONFIRM
@@ -40,6 +40,6 @@ states:
           name: "{{data.customer_name}}"
         result_key: available_slots
       - action: send_text
-        text: "Slots listos."
+        text: "Slots ready."
     transitions: []
     fallback: MENU

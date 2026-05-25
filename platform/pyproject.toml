@@ -7,12 +7,12 @@ dependencies = [
     "uvicorn[standard]",
     "pyyaml",
     "tenacity>=8.2",
+    "httpx",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
-    "httpx",
     "ruff",
     "mypy",
 ]

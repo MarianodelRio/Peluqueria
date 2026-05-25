@@ -209,10 +209,10 @@ def test_bot_engine_with_registry() -> None:
     # The invoke_connector result is {"result": ["09:00", "10:00"]}
     assert saved.data["available_slots"] == {"result": ["09:00", "10:00"]}
 
-    # on_enter of CONFIRM sends "Slots listos."
+    # on_enter of CONFIRM sends "Slots ready."
     assert len(outputs) == 1
     assert isinstance(outputs[0], SendTextOutput)
-    assert outputs[0].text == "Slots listos."
+    assert outputs[0].text == "Slots ready."
 
     # Adapter was called exactly once
     assert len(calendar_adapter.calls) == 1
