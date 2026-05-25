@@ -1,0 +1,45 @@
+id: toy_v1
+initial_state: MENU
+
+global_transitions:
+  - on_payload: "back_to_menu"
+    target: MENU
+
+states:
+  MENU:
+    on_enter:
+      - action: send_text
+        text: "Bienvenido. Elige una opcion."
+      - action: send_interactive_buttons
+        body: "Opciones"
+        buttons:
+          - id: "opt_book"
+            title: "Reservar"
+    transitions:
+      - on_payload: "opt_book"
+        target: ENTER_NAME
+    fallback: MENU
+
+  ENTER_NAME:
+    on_enter:
+      - action: send_text
+        text: "Escribe tu nombre."
+    transitions:
+      - on_type: text
+        target: CONFIRM
+        set_data:
+          customer_name: "{{message.text}}"
+    fallback: ENTER_NAME
+
+  CONFIRM:
+    on_enter:
+      - action: invoke_connector
+        connector: calendar
+        operation: list_slots
+        params:
+          name: "{{data.customer_name}}"
+        result_key: available_slots
+      - action: send_text
+        text: "Slots listos."
+    transitions: []
+    fallback: MENU

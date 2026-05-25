@@ -445,7 +445,7 @@
 
 > Esta sección se va actualizando a mano según se avanza.
 
-- **Fase actual:** Fase 0 — Scaffolding y stack tecnológico.
+- **Fase actual:** Fase 1 — Bot Engine standalone.
 - **Fases cerradas:** ninguna.
 - **Decisiones cerradas:** las recogidas en `arquitectura.md` (modelo de dos planos, scheduler push, containers siempre encendidos, etc.).
 - **Próximo paso concreto:** decidir el stack tecnológico de F0 y arrancar el scaffolding real.
