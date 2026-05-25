@@ -38,3 +38,5 @@ logs/
 *.swo
 .DS_Store
 
+
+uv.lock

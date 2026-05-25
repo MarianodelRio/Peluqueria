@@ -1,0 +1,29 @@
+services:
+  control_plane:
+    build:
+      context: .
+      dockerfile: control_plane/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONPATH=/app
+  data_plane:
+    build:
+      context: .
+      dockerfile: data_plane/Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHONPATH=/app
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      POSTGRES_DB: platform
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

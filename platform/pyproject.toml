@@ -1,0 +1,30 @@
+[project]
+name = "platform"
+requires-python = ">=3.12"
+version = "0.1.0"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "httpx",
+    "ruff",
+    "mypy",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
