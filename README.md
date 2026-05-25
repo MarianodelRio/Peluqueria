@@ -1,269 +1,120 @@
-# Sistema de Citas — Peluquería
+# Plataforma de Bots Conversacionales
 
-Bot de WhatsApp para gestión de citas integrado con Google Calendar.
-Los clientes reservan, consultan y cancelan citas por WhatsApp. El peluquero gestiona todo desde Google Calendar.
+Plataforma SaaS multi-tenant para ofrecer bots conversacionales a múltiples negocios (peluquerías, clínicas, gimnasios, restaurantes…) sobre infraestructura común. Arquitectura de **dos planos**: un control plane compartido que gestiona la plataforma, y un container por cliente que ejecuta su bot.
 
----
-
-## Cómo funciona
-
-### El cliente (por WhatsApp)
-1. Escribe cualquier mensaje → el bot muestra el menú principal
-2. Elige **Pedir cita** → selecciona el servicio → selecciona día y hora
-3. Escribe su nombre → la cita queda registrada en Calendar
-4. Puede consultar sus citas o cancelarlas en cualquier momento
-5. Recibe un recordatorio automático ~24h antes con botones de confirmar/cancelar
-
-### Servicios disponibles
-
-| Servicio | Precio | Peluquero | Cliente en local |
-|----------|--------|-----------|-----------------|
-| Corte de pelo | 10 € | 30 min | 30 min |
-| Corte de pelo + barba | 12 € | 30 min | 30 min |
-| Mechas | 30 € | 1 h | 3 h |
-
-**Peluquero** = duración del evento en Google Calendar (tiempo activo del peluquero). **Cliente en local** = tiempo total que el cliente permanece en la peluquería.
-
-Mechas: el evento bloquea 1 h en la agenda del peluquero (puede atender otra cita después de esa hora), pero el cliente permanece 3 h en la peluquería. Por eso solo se ofrece reserva de mechas cuando quedan al menos 3 h hasta el cierre.
-
-### El peluquero (desde Google Calendar)
-- Crea eventos con `Telefono: +34XXXXXXXXX` en la descripción → el sistema envía confirmación automática por WhatsApp
-- Crea cualquier evento sin teléfono para bloquear un horario
-- Usa eventos de configuración para cerrar días o cambiar horarios:
-
-```
-[CFG] CERRADO              → cierra ese día
-[CFG] VACACIONES           → cierra el rango del evento
-[CFG] HORARIO 10:00-13:00  → cambia el horario de ese día
-```
-
-### Procesos automáticos (scheduler en segundo plano)
-| Job | Frecuencia | Descripción |
-|-----|-----------|-------------|
-| Sync citas manuales | Cada 5 min | Detecta citas nuevas del peluquero y envía confirmación |
-| Recordatorios 24h | Cada hora | Envía recordatorio con botones confirmar/cancelar |
-| Limpiar estados | Cada 10 min | Elimina conversaciones inactivas (> 30 min) |
+> **Estado: fase de diseño.** El código de la plataforma aún no existe. Este repo contiene el documento de arquitectura, la estructura del proyecto, y el código `legacy` que sirve de referencia.
 
 ---
 
-## Estructura del proyecto
+## Estructura del repositorio
 
 ```
-Peluqueria/
-├── app/                         # Código fuente de la aplicación
-│   ├── config.py                # Toda la configuración centralizada
-│   ├── main.py                  # Punto de entrada FastAPI + lifespan
-│   ├── handlers/
-│   │   ├── webhook.py           # Endpoints GET/POST /webhook
-│   │   └── conversation.py      # Máquina de estados de conversación
-│   ├── services/
-│   │   ├── calendar.py          # Operaciones Google Calendar API
-│   │   ├── whatsapp.py          # Envío de mensajes WhatsApp Cloud API
-│   │   └── scheduler.py         # Jobs automáticos (APScheduler)
-│   └── utils/
-│       ├── parser.py            # Parseo robusto de descripciones de eventos
-│       ├── slots.py             # Generación de slots y disponibilidad
-│       ├── interactive.py       # Builders de mensajes interactivos WhatsApp
-│       └── messages.py          # Textos en español
-│
-├── tests/                       # Suite de tests (pytest)
-│   ├── conftest.py              # Fixtures compartidos
-│   ├── test_calendar.py
-│   ├── test_conversation.py
-│   ├── test_interactive.py
-│   ├── test_parser.py
-│   ├── test_regression.py
-│   ├── test_slots.py
-│   ├── test_webhook.py
-│   └── test_whatsapp.py
-│
-├── .env.example                 # Plantilla de variables de entorno
-├── .gitignore
-├── pytest.ini
-├── requirements.txt             # Dependencias de producción
-├── requirements-dev.txt         # Dependencias de desarrollo y tests
-└── README.md
+.
+├── arquitectura.md       ← documento de diseño (fuente de verdad)
+├── PLAN.md               ← fases de implementación F0–F13 con criterios de aceptación
+├── legacy.md             ← patrones portables del bot legacy y checklist de migración
+├── legacy/               ← implementación single-tenant anterior (referencia working)
+│   ├── app/              · código de la app (FastAPI + APScheduler)
+│   ├── tests/            · suite pytest
+│   ├── watchdog.py       · monitor standalone
+│   ├── config.yaml       · config del negocio
+│   ├── README.md         · documentación del bot legacy
+│   ├── CLAUDE.md         · instrucciones para Claude del bot legacy
+│   └── ...
+└── platform/             ← la nueva plataforma (greenfield, en construcción)
+    ├── control_plane/    · servicios compartidos
+    ├── data_plane/       · imagen del container por tenant
+    ├── shared/           · ports, dominio, utilidades comunes
+    └── tests/            · suite de tests de la plataforma
 ```
 
 ---
 
-## Requisitos previos
+## El documento clave
 
-- Python 3.10+
-- Cuenta en Google Cloud con **Calendar API** activada y un Service Account
-- Cuenta en **Meta for Developers** con WhatsApp Cloud API configurada
-- [`ngrok`](https://ngrok.com/) para exponer el servidor en desarrollo
+**[arquitectura.md](arquitectura.md)** es la fuente de verdad del diseño. Describe:
 
----
+- El modelo de dos planos (Control Plane + Data Plane).
+- Los componentes, sus responsabilidades y qué NO hacen.
+- Cómo se conectan entre sí.
+- El flujo concreto de alta de un cliente nuevo.
+- Las decisiones tomadas y las que quedan por investigar.
 
-## Instalación
-
-```bash
-# Clonar el repositorio
-git clone <repo-url>
-cd app_peluqueria
-
-# Crear entorno virtual
-python3 -m venv venv
-source venv/bin/activate          # Linux/Mac
-# venv\Scripts\activate           # Windows
-
-# Instalar dependencias de producción
-pip install -r requirements.txt
-
-# O instalar también las de desarrollo (tests)
-pip install -r requirements-dev.txt
-```
+> Antes de tocar código en `platform/`, leer `arquitectura.md`.
 
 ---
 
-## Configuración
+## Sobre `legacy/`
 
-### 1. Variables de entorno
+El código en `legacy/` es la implementación single-tenant que existía antes de empezar este diseño. **No se va a refactorizar.** Vive ahí como **implementación de referencia** de lo que un container del Data Plane tiene que hacer:
 
-Copiar la plantilla y rellenar los valores:
+- Recibir webhooks de WhatsApp.
+- Hablar con Google Calendar.
+- Gestionar conversaciones con estado.
+- Programar recordatorios y tareas periódicas.
 
-```bash
-cp .env.example .env
-```
+Cuando se implemente un componente nuevo en `platform/`, se mira `legacy/` para ver cómo se resolvió cada problema y se reutilizan las piezas que tengan sentido. Especialmente:
 
-```ini
-# .env
-WHATSAPP_PHONE_NUMBER_ID=123456789012345
-WHATSAPP_ACCESS_TOKEN=EAAxxxxxxxxxxxxx
-WHATSAPP_VERIFY_TOKEN=mi_token_secreto_123
-GOOGLE_CREDENTIALS_PATH=/ruta/absoluta/credentials.json
-GOOGLE_CALENDAR_ID=xxxxxxxxxx@group.calendar.google.com
-```
+- Integración con WhatsApp Cloud API ([legacy/app/services/whatsapp.py](legacy/app/services/whatsapp.py))
+- Integración con Google Calendar ([legacy/app/services/calendar/](legacy/app/services/calendar/))
+- Parseo de descripciones de eventos ([legacy/app/utils/parser.py](legacy/app/utils/parser.py))
+- Generación de slots ([legacy/app/utils/slots.py](legacy/app/utils/slots.py))
+- Deduplicación de webhooks ([legacy/app/utils/dedup.py](legacy/app/utils/dedup.py))
+- HMAC + rate limiting ([legacy/app/handlers/webhook.py](legacy/app/handlers/webhook.py), [legacy/app/utils/rate_limiter.py](legacy/app/utils/rate_limiter.py))
+- Patrones de testing ([legacy/tests/conftest.py](legacy/tests/conftest.py))
 
-> **Importante:** `.env` y `credentials.json` están en `.gitignore`. Nunca los subas al repositorio.
+**Lo que NO se porta:**
 
-### 2. Credenciales Google Calendar
-
-1. [Google Cloud Console](https://console.cloud.google.com/) → crear proyecto → activar **Google Calendar API**
-2. Crear **Service Account** → descargar JSON → guardarlo fuera del repo (ej: `~/secrets/credentials.json`)
-3. En Google Calendar: crear un calendario → compartirlo con el email del Service Account (permisos de edición)
-4. Copiar el **Calendar ID** desde Configuración del calendario → Integrar calendario
-
-### 3. Credenciales WhatsApp
-
-1. [Meta for Developers](https://developers.facebook.com/) → crear app de tipo **Business**
-2. Añadir producto **WhatsApp** → configurar número de teléfono
-3. Obtener **Phone Number ID** y **Access Token** permanente
-4. Definir un **Verify Token** (cualquier string, ej: `mi_token_secreto_123`)
-
-### 4. Horario base
-
-En `app/config.py`, modificar `HORARIO_BASE` (días 0=Lunes … 6=Domingo):
-
-```python
-HORARIO_BASE = {
-    0: [("10:00", "14:00"), ("16:00", "20:00")],  # Lunes
-    1: [("10:00", "14:00"), ("16:00", "20:00")],  # Martes
-    2: [("10:00", "14:00"), ("16:00", "20:00")],  # Miércoles
-    3: [("10:00", "14:00"), ("16:00", "20:00")],  # Jueves
-    4: [("10:00", "14:00"), ("16:00", "20:00")],  # Viernes
-    5: [("10:00", "14:00")],                       # Sábado (solo mañana)
-    # Días sin entrada = cerrado (ej: domingo)
-}
-```
-
-Para cambios puntuales sin reiniciar el servidor, usa eventos `[CFG]` en Google Calendar.
+- El flow conversacional específico de peluquería (en la nueva arquitectura es **datos** en el Control Plane, no código).
+- Los textos hardcoded en español (pasan a ser config por tenant).
+- El modelo de "una sola fuente YAML global" (sustituido por config por tenant en el Control Plane).
+- El estado de conversación en memoria (sustituido por estado durable por container).
 
 ---
 
-## Arrancar el servidor
+## Sobre `platform/`
 
-### Desarrollo (con ngrok)
+Las cuatro carpetas están vacías a propósito. Cada una corresponde a una pieza de la arquitectura:
 
-```bash
-# Terminal 1 — servidor
-source venv/bin/activate
-uvicorn app.main:app --reload --port 8000
-
-# Terminal 2 — túnel público
-ngrok http 8000
-```
-
-ngrok mostrará una URL como `https://abc123.ngrok-free.app`.
-
-**Configurar webhook en Meta:**
-1. Meta for Developers → tu app → WhatsApp → Configuración
-2. **Webhook URL:** `https://abc123.ngrok-free.app/webhook`
-3. **Verify Token:** el mismo valor que en `.env`
-4. Suscribirse a: `messages`, `message_status`
-5. Pulsar **Verificar y guardar**
-
-### Verificar que funciona
-
-```bash
-curl http://localhost:8000/health
-# {"status":"ok","calendar":"ok","metrics":{...}}   ← todo correcto
-# {"status":"degraded","calendar":"error","metrics":{...}}  ← problema con Calendar API
-```
-
-### Producción (servidor Linux)
-
-```bash
-# Con nohup
-source venv/bin/activate
-nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > logs.txt 2>&1 &
-tail -f logs.txt
-```
-
-Con **systemd** — crear `/etc/systemd/system/peluqueria.service`:
-
-```ini
-[Unit]
-Description=Peluqueria Citas Bot
-After=network.target
-
-[Service]
-User=tu_usuario
-WorkingDirectory=/ruta/a/app_peluqueria
-EnvironmentFile=/ruta/a/app_peluqueria/.env
-ExecStart=/ruta/a/app_peluqueria/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable peluqueria
-sudo systemctl start peluqueria
-sudo systemctl status peluqueria
-```
+| Carpeta | Qué contendrá | Componentes (ver arquitectura.md) |
+|---------|---------------|-----------------------------------|
+| `platform/control_plane/` | Los servicios compartidos en VM | Tenant & Identity, Flow Authoring, Tenant Orchestrator, Task Scheduler, Observability Aggregator, Admin Panel |
+| `platform/data_plane/` | La imagen del container por tenant | Channel Adapters, Bot Engine, Connector Execution |
+| `platform/shared/` | Código común a ambos planos | Dominio, ports, utilidades, modelo de mensaje interno |
+| `platform/tests/` | Suite de tests de la plataforma | Tests unitarios + integración + end-to-end |
 
 ---
 
-## Tests
+## Estado actual
 
-```bash
-# Activar entorno virtual
-source venv/bin/activate
+- ✅ Diseño de arquitectura a alto nivel — en `arquitectura.md`.
+- ✅ Código legacy preservado como referencia — en `legacy/`.
+- ✅ Estructura de carpetas de la nueva plataforma — en `platform/`.
+- ✅ Plan de implementación por fases — en `PLAN.md`.
+- ✅ Catálogo de patrones portables y guía de migración — en `legacy.md`.
+- ⏳ Implementación de la plataforma — en curso. **Fase actual: F0 — Scaffolding** (ver `PLAN.md`).
 
-# Ejecutar todos los tests
-pytest
-
-# Con cobertura
-pytest --cov=app --cov-report=term-missing
-
-# Un módulo concreto
-pytest tests/test_conversation.py -v
-```
-
-Los tests no requieren credenciales reales — todas las APIs externas están mockeadas.
+Próximos pasos detallados en `PLAN.md`. El criterio de "done" para F0: `make run-control-plane` y `make run-data-plane` retornan 200 en `/health`, y `make test` y `make lint` pasan.
 
 ---
 
-## Solución de problemas
+## Trabajando con Claude en este repo
 
-| Síntoma | Causa probable | Solución |
-|---------|---------------|----------|
-| `{"status":"degraded"}` en /health | Calendar API inaccesible | Verificar `credentials.json` y permisos del Service Account |
-| Webhook no verifica (403) | Token incorrecto o URL mal configurada | Comprobar `WHATSAPP_VERIFY_TOKEN` en `.env` y en Meta |
-| Bot no responde mensajes | ngrok caído o webhook no suscrito | Reiniciar ngrok y actualizar URL en Meta |
-| No llegan recordatorios | `Recordatorio: sí` ya en el evento | Normal si ya se envió; verificar que el teléfono está en la descripción |
-| `ModuleNotFoundError: app` | pytest no encuentra el paquete | Asegurarse de que existe `pytest.ini` con `pythonpath = .` |
+Este repo usa agentes y comandos de Claude configurados en `.claude/`. Cada agente tiene un rol acotado; el flujo normal es: research → plan → code → review.
+
+### Agentes disponibles
+
+| Agente | Descripción |
+|--------|-------------|
+| `advisor` | Consultor de arquitectura: da UNA recomendación clara ante decisiones difíciles (hosting, scheduler, modelo de credenciales, etc.). No escribe código. |
+| `planner` | Produce planes de implementación paso a paso, situados en una fase de `PLAN.md`. No escribe código. |
+| `coder` | Ejecuta el plan aprobado con cambios mínimos y focalizados. No ejecuta tests. |
+| `reviewer` | Revisa la implementación contra el plan: hexagonal, tenant isolation, sin modificar `legacy/`. Entrega los comandos de test al usuario. |
+| `researcher` | Investiga APIs, patrones y opciones externas. Devuelve hallazgos accionables con fuentes. |
+
+### Comandos disponibles
+
+| Comando | Descripción |
+|---------|-------------|
+| `/research` | Sesión de investigación interactiva: carga el contexto del proyecto, hace preguntas aclaratorias, invoca `researcher` y `advisor`, y produce un Research Design Solution (RDS) cuando se lo pides. |
+| `/new-feature` | Pipeline completo planner → coder → reviewer con aprobación explícita del usuario en cada fase. Requiere un RDS como entrada. |

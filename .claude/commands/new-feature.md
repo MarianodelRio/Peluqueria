@@ -5,7 +5,7 @@ description: Full implementation pipeline for a new feature. Runs planner → co
 
 # /new-feature — Implementation Pipeline
 
-You orchestrate a three-phase implementation cycle with mandatory user approval at every checkpoint.
+You orchestrate a three-phase implementation cycle for the Plataforma de Bots Conversacionales with mandatory user approval at every checkpoint.
 
 **Never advance to the next phase without explicit user approval.**
 
@@ -24,11 +24,11 @@ Ask the user: "Do you have a Research Design Solution (RDS) ready?"
 
 **Action**: Invoke the `planner` subagent with this prompt:
 
-> "You are the planner for the Peluquería Citas Bot project. Here is the approved Research Design Solution:
+> "You are the planner for the Plataforma de Bots Conversacionales project. Here is the approved Research Design Solution:
 >
 > [PASTE RDS HERE]
 >
-> Produce an implementation plan following your output format. Read the relevant source files first."
+> Produce an implementation plan following your output format. Read `arquitectura.md` and the relevant section of `PLAN.md` first, then read the relevant source files under `platform/`."
 
 **Show the user the complete planner output.**
 
@@ -47,11 +47,11 @@ Do not proceed until the user explicitly says "approve" (or equivalent confirmat
 
 **Action**: Invoke the `coder` subagent with this prompt:
 
-> "You are the coder for the Peluquería Citas Bot project. Here is the approved implementation plan:
+> "You are the coder for the Plataforma de Bots Conversacionales project. Here is the approved implementation plan:
 >
 > [PASTE APPROVED PLAN HERE]
 >
-> Implement exactly what the plan says. Follow the code conventions in your agent instructions. Run pytest after implementing to verify no tests broke. Report your implementation summary."
+> Implement exactly what the plan says. Follow the code conventions in your agent instructions. Report the command the user should run to verify (the user runs tests themselves)."
 
 **Show the user the complete coder output.**
 
@@ -70,7 +70,7 @@ Do not proceed until the user says "continue" (or equivalent).
 
 **Action**: Invoke the `reviewer` subagent with this prompt:
 
-> "You are the reviewer for the Peluquería Citas Bot project. Here is the approved plan and the coder's implementation summary:
+> "You are the reviewer for the Plataforma de Bots Conversacionales project. Here is the approved plan and the coder's implementation summary:
 >
 > **Approved plan:**
 > [PASTE APPROVED PLAN]
@@ -92,11 +92,11 @@ Report to the user:
 Implementation cycle complete.
 
 Run the following to verify:
-[paste the pytest commands from reviewer output]
+[paste the test commands from reviewer output]
 
 Next steps:
 - If tests pass → feature is ready
-- If you want to deploy → see deploy.md for systemd/nohup instructions
+- If you want to deploy → see the deployment instructions for the relevant plane
 ```
 
 ### If reviewer says REQUEST_CHANGES
@@ -109,7 +109,7 @@ Issues to fix:
 
 Options:
 - **new cycle** — start a new planner→coder→reviewer cycle to fix the issues
-- **manual fix** — address the issues yourself and re-run pytest
+- **manual fix** — address the issues yourself and run the test commands provided by the reviewer
 ```
 
 ---
@@ -118,9 +118,11 @@ Options:
 
 Before declaring the pipeline complete, confirm:
 
-- [ ] `pytest` ran without failures (coder reported this)
 - [ ] Reviewer found no CRITICAL or BUG issues (or they were resolved)
-- [ ] `/health` endpoint behavior is unchanged
+- [ ] `/health` returns 200 on both Control Plane and Data Plane
 - [ ] No new hardcoded secrets or credentials were introduced
-- [ ] All new Spanish text strings are in `messages.py` (not inlined)
-- [ ] Thread safety patterns followed (per-phone and per-slot locks where applicable)
+- [ ] Hexagonal boundary respected (core does not import adapters or framework classes)
+- [ ] All Control Plane data access carries `tenant_id`
+- [ ] No modification of `legacy/`
+- [ ] Reviewer provided test commands (not executed)
+- [ ] Coder did not execute tests

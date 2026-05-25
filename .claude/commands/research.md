@@ -5,38 +5,39 @@ description: Conversational research session to mature an idea into a concrete s
 
 # /research — Research & Design Session
 
-You run an interactive research session to mature a vague idea into a concrete, implementable solution for this project.
+You run an interactive research session to mature a vague idea into a concrete, implementable solution for the Plataforma de Bots Conversacionales.
 
 ## Phase 1 — Load project context (do this first, silently)
 
 Before asking anything, read:
-- `README.md` — understand the system boundaries and how the barber/client flows work
-- `app/config.py` — understand configuration knobs and constraints (HORARIO_BASE, timeouts, intervals)
-- `app/handlers/conversation.py` — understand the state machine (states, transitions, fallbacks)
-- `app/services/calendar.py` — understand the Google Calendar data model (event descriptions, slot logic, locking)
-- `app/services/scheduler.py` — understand background jobs (intervals, what they do)
+- `arquitectura.md` — the full design (two-plane model, components, open decisions)
+- `PLAN.md` — current phase and its acceptance criteria
+- `legacy.md` — portable patterns and migration notes
+
+You may also skim relevant code under `platform/` if it exists. Do NOT read files under `legacy/app/` for context (use `legacy.md` as the summary instead).
 
 Then greet the user and ask your first clarifying question.
 
-## Phase 2 — Clarifying conversation
+## Phase 2 — Clarifying questions
 
 Ask focused questions to understand:
 
-1. **What problem are you solving?** — Is it a new client-facing feature (new conversation state), a barber-side enhancement (Calendar event format), a scheduler job, or a non-functional concern (performance, security, monitoring)?
-2. **Who is affected?** — Client via WhatsApp? Barber via Google Calendar? Both? Internal operations only?
-3. **What triggers it?** — Inbound message, Calendar event creation, scheduled job, or manual admin action?
-4. **What are the constraints?** — WhatsApp API limits (interactive message row counts, template approval), Calendar API quotas, in-memory state limitations, no-database constraint.
-5. **What does success look like?** — Specific user journey, specific Calendar event state, specific metric.
+1. **What component of the new architecture does this touch?** — Control Plane (which component: Tenant & Identity, Flow Authoring, Tenant Orchestrator, Task Scheduler, Observability Aggregator, Admin Panel?) or Data Plane (Channel Adapters, Bot Engine, Connector Execution?)?
+2. **Which phase of `PLAN.md` does this fall in?** — If it is out of scope for the current phase, flag it before proceeding.
+3. **Which "A investigar" decisions in `arquitectura.md` does this close?** — hosting, scheduler backend, flow format, credential model, CP↔DP communication, connector interface, per-container state?
+4. **What triggers it?** — Inbound webhook, Control Plane push, scheduled job, admin action?
+5. **What does success look like?** — Specific behavior, specific API response, specific observable state.
 
 Explore 2–3 options before converging. For each option mention:
-- Where it fits in the current architecture (which module it touches)
-- Key risk or limitation for this system
-- Rough scope (1 file? 2–3 files? new service?)
+- Which plane and component it lives in
+- Key hexagonal boundary it touches (core / port / adapter)
+- Key risk (tenant isolation, boundary violation, phase scope)
+- Rough scope (1 file? new port + adapter? new component?)
 
 ## Phase 3 — Invoke subagents as needed
 
-- **Invoke `researcher`** when: you need to verify an API capability (WhatsApp message type, Calendar feature), find a pattern in the codebase, or explore external approaches before deciding.
-- **Invoke `advisor`** when: there are 2+ valid approaches with genuine architectural tradeoffs — e.g., in-memory vs persistent state, threading vs asyncio, list vs button message type, caching strategy.
+- **Invoke `researcher`** when: you need to verify an external capability (hosting feature, scheduler API, flow format spec), find a pattern in the codebase, or compare concrete implementation options.
+- **Invoke `advisor`** when: there are 2+ valid approaches with genuine architectural tradeoffs — e.g., hosting provider, scheduler backend, credential model, CP↔DP communication style.
 
 Always show the user the subagent's output before continuing.
 
@@ -48,21 +49,26 @@ Produce this document only when the user says something like "write the RDS", "c
 # Research Design Solution — [Feature Name]
 
 ## Overview
-[One paragraph: what this adds to the Peluquería bot and why]
+[One paragraph: what this adds to the Plataforma de Bots and why]
 
 ## Problem / Motivation
-[Current limitation or user pain point. Reference specific code or flow if applicable.]
+[Current limitation or open decision being closed. Reference arquitectura.md or PLAN.md if applicable.]
+
+## Fase de PLAN.md
+[Which phase this belongs to and why it fits]
+
+## Decisiones que cierra
+[Which "A investigar" decisions from arquitectura.md this resolves, if any]
 
 ## Proposed Solution
 [Concrete description of the solution — no pseudocode, no implementation details]
 
 ## Integration Points
-| Component | Change type | Notes |
-|-----------|------------|-------|
-| `app/handlers/conversation.py` | New state / modified handler | ... |
-| `app/services/calendar.py` | New function / modified query | ... |
-| `app/utils/interactive.py` | New message builder | ... |
-| `app/utils/messages.py` | New text strings | ... |
+| Component | Plane | Change type | Notes |
+|-----------|-------|-------------|-------|
+| `platform/control_plane/<component>/` | CP | New port / adapter / core function | ... |
+| `platform/data_plane/<component>/` | DP | New port / adapter / core function | ... |
+| `platform/shared/` | Both | New domain model / utility | ... |
 
 ## Key Design Decisions
 1. **[Decision]** — [Why this over alternatives]
@@ -70,15 +76,15 @@ Produce this document only when the user says something like "write the RDS", "c
 
 ## Edge Cases
 - [Edge case]: [how it's handled]
-- WhatsApp retry / duplicate message: [handling]
-- Calendar API down during operation: [graceful degradation]
-- Concurrent booking of same slot: [lock strategy]
+- Tenant isolation: [how tenant_id is carried or container identity is preserved]
+- Hexagonal boundary: [which side of core/ports/adapters handles each concern]
+- Idempotency: [how duplicate or retried operations are handled]
 
 ## Acceptance Criteria
-- [ ] [Specific, testable condition]
-- [ ] All existing pytest tests pass
-- [ ] /health endpoint still returns `{"status":"ok"}`
-- [ ] No regression in existing conversation flows
+- [ ] [Specific, testable condition aligned with PLAN.md "Definicion de hecho"]
+- [ ] make test passes
+- [ ] make lint passes
+- [ ] /health returns 200 on both planes
 
 ## Scope Estimate
 - Files to modify: [list]
