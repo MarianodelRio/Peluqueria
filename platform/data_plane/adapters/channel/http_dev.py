@@ -14,6 +14,7 @@ from data_plane.engine.outputs import (
     Output,
     SendInteractiveButtonsOutput,
     SendInteractiveListOutput,
+    SendOptionsOutput,
     SendTextOutput,
 )
 from data_plane.ports.channel_adapter import ChannelAdapter, ChannelCapabilities
@@ -58,6 +59,13 @@ def _output_to_dict(output: Output) -> dict[str, Any]:
                 }
                 for s in output.sections
             ],
+        }
+    if isinstance(output, SendOptionsOutput):
+        return {
+            "type": "options",
+            "body": output.body,
+            "button_label": output.button_label,
+            "options": [{"id": opt.id, "title": opt.title} for opt in output.options],
         }
     log.error("[HTTP_DEV] Unknown output type: %s", type(output))
     return {"type": "unknown"}

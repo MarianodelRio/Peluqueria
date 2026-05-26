@@ -3,6 +3,7 @@ from data_plane.engine.outputs import (
     Output,
     SendInteractiveButtonsOutput,
     SendInteractiveListOutput,
+    SendOptionsOutput,
     SendTextOutput,
 )
 from data_plane.ports.channel_adapter import ChannelCapabilities
@@ -47,5 +48,14 @@ def degrade_output(output: Output, caps: ChannelCapabilities) -> Output:
                 button_label=output.button_label,
                 sections=tuple(new_sections),
             )
+
+    if isinstance(output, SendOptionsOutput):
+        if not caps.supports_interactive_lists:
+            text = output.body + "\n" + "\n".join(
+                f"{i + 1}. {opt.title}" for i, opt in enumerate(output.options)
+            )
+            return SendTextOutput(text=text)
+        # Channel supports lists — pass through for the adapter to convert
+        return output
 
     return output

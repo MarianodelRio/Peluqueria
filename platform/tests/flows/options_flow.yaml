@@ -1,0 +1,45 @@
+id: options_flow_v1
+initial_state: MENU
+
+services:
+  corte:
+    name: "Corte de pelo"
+    price: "10€"
+    duracion_min: 30
+    presencia_min: 30
+
+global_transitions:
+  - on_payload: "reset"
+    target: MENU
+
+states:
+  MENU:
+    on_enter:
+      - action: send_text
+        text: "Elige servicio"
+    transitions:
+      - on_payload_prefix: "svc_"
+        extract_suffix_as: "selected_service"
+        target: SELECT_DAY
+    fallback: MENU
+
+  SELECT_DAY:
+    on_enter:
+      - action: send_dynamic_options
+        source_key: "available_days"
+        text: "Elige día"
+        button_label: "Ver días"
+        empty_text: "No hay días disponibles."
+    transitions:
+      - on_payload_prefix: "day_"
+        extract_suffix_as: "selected_date"
+        target: DONE
+        condition: "data.selected_service"
+    fallback: MENU
+
+  DONE:
+    on_enter:
+      - action: send_text
+        text: "Reserva para {{data.selected_date}}"
+    transitions: []
+    fallback: MENU

@@ -14,9 +14,11 @@ from .outputs import (
     ButtonDef,
     ListRowDef,
     ListSectionDef,
+    OptionDef,
     Output,
     SendInteractiveButtonsOutput,
     SendInteractiveListOutput,
+    SendOptionsOutput,
     SendTextOutput,
 )
 
@@ -28,16 +30,43 @@ MAX_TRANSITION_DEPTH = 10
 _TEMPLATE_RE = re.compile(r"\{\{([^}]+)\}\}")
 
 
+class DataProxy:
+    """Wraps a dict; attribute access returns None for missing keys, DataProxy for nested dicts."""
+
+    def __init__(self, data: dict) -> None:
+        object.__setattr__(self, "_data", data)
+
+    def __getattr__(self, key: str) -> Any:
+        data = object.__getattribute__(self, "_data")
+        val = data.get(key)
+        if isinstance(val, dict):
+            return DataProxy(val)
+        return val
+
+
 def _resolve(template: str, message: InternalMessage, data: dict[str, Any]) -> str:
-    """Replace {{message.text}}, {{data.key}} etc. in a template string."""
+    """Replace {{message.text}}, {{data.key}}, {{data.a.b.c}} etc. in a template string."""
 
     def replacer(match: re.Match[str]) -> str:
         expr = match.group(1).strip()
-        parts = expr.split(".", 1)
-        if parts[0] == "message" and len(parts) == 2:
+        parts = expr.split(".")
+        if not parts:
+            return match.group(0)
+        namespace = parts[0]
+        if namespace == "message" and len(parts) >= 2:
+            # Single-level message attribute
             return str(getattr(message, parts[1], "") or "")
-        if parts[0] == "data" and len(parts) == 2:
-            return str(data.get(parts[1], ""))
+        if namespace == "data" and len(parts) >= 2:
+            # Navigate potentially nested path
+            current: Any = data
+            for segment in parts[1:]:
+                if isinstance(current, dict):
+                    current = current.get(segment)
+                else:
+                    current = None
+                if current is None:
+                    return ""
+            return str(current) if current is not None else ""
         return match.group(0)
 
     return _TEMPLATE_RE.sub(replacer, template)
@@ -52,12 +81,39 @@ def _resolve_params(
     return resolved
 
 
-def _transition_matches(transition: TransitionDef, message: InternalMessage) -> bool:
-    if transition.on_payload is not None:
-        return message.payload == transition.on_payload
-    if transition.on_type is not None:
-        return message.message_type.value == transition.on_type
-    return False
+def _transition_matches(
+    transition: TransitionDef, message: InternalMessage, data: dict[str, Any]
+) -> bool:
+    # Determine payload match
+    if transition.on_payload_prefix is not None:
+        payload_match = (
+            message.payload is not None
+            and message.payload.startswith(transition.on_payload_prefix)
+        )
+    elif transition.on_payload is not None:
+        payload_match = message.payload == transition.on_payload
+    elif transition.on_type is not None:
+        payload_match = message.message_type.value == transition.on_type
+    else:
+        return False
+
+    if not payload_match:
+        return False
+
+    # Evaluate optional condition
+    if transition.condition is not None:
+        try:
+            result = eval(  # noqa: S307
+                transition.condition,
+                {"__builtins__": {}},
+                {"data": DataProxy(data)},
+            )
+        except Exception:
+            return False
+        if not result:
+            return False
+
+    return True
 
 
 def _run_on_enter(
@@ -104,6 +160,22 @@ def _run_on_enter(
                 )
             )
 
+        elif action.action == "send_dynamic_options":
+            items = state.data.get(action.source_key or "", []) if action.source_key else []
+            if items:
+                options_tuple = tuple(
+                    OptionDef(id=item["id"], title=item["title"]) for item in items
+                )
+                outputs.append(
+                    SendOptionsOutput(
+                        body=action.text or "",
+                        button_label=action.button_label or "Seleccionar",
+                        options=options_tuple,
+                    )
+                )
+            elif action.empty_text:
+                outputs.append(SendTextOutput(text=action.empty_text))
+
         elif action.action == "invoke_connector":
             params = _resolve_params(action.params, message, state.data)
             result = connector.invoke(
@@ -145,7 +217,7 @@ class FlowInterpreter:
 
             # Check global transitions first
             for gt in flow.global_transitions:
-                if _transition_matches(gt, message):
+                if _transition_matches(gt, message, new_state.data):
                     matched_transition = gt
                     break
 
@@ -154,7 +226,7 @@ class FlowInterpreter:
                 current_state_def = flow.states.get(new_state.current_state)
                 if current_state_def:
                     for t in current_state_def.transitions:
-                        if _transition_matches(t, message):
+                        if _transition_matches(t, message, new_state.data):
                             matched_transition = t
                             break
 
@@ -162,6 +234,20 @@ class FlowInterpreter:
                 # Apply set_data interpolations
                 for key, template in matched_transition.set_data.items():
                     new_state.data[key] = _resolve(template, message, new_state.data)
+
+                # Apply prefix extraction and optional service expansion
+                if (
+                    matched_transition.on_payload_prefix is not None
+                    and matched_transition.extract_suffix_as is not None
+                    and message.payload is not None
+                ):
+                    suffix = message.payload[len(matched_transition.on_payload_prefix):]
+                    new_state.data[matched_transition.extract_suffix_as] = suffix
+                    # Expand service properties if suffix matches a service key
+                    service = flow.services.get(suffix)
+                    if service is not None:
+                        for prop_key, prop_val in service.items():
+                            new_state.data[f"service_{prop_key}"] = prop_val
 
                 new_state.current_state = matched_transition.target
                 target_def = flow.states.get(new_state.current_state)

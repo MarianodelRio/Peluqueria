@@ -9,9 +9,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from starlette.responses import PlainTextResponse
 
 from data_plane.engine.outputs import (
+    ListRowDef,
+    ListSectionDef,
     Output,
     SendInteractiveButtonsOutput,
     SendInteractiveListOutput,
+    SendOptionsOutput,
     SendTextOutput,
 )
 from data_plane.ports.channel_adapter import ChannelAdapter, ChannelCapabilities
@@ -116,6 +119,46 @@ class WhatsAppAdapter(ChannelAdapter):
                             {"type": "reply", "reply": {"id": b.id, "title": b.title}}
                             for b in output.buttons
                         ]
+                    },
+                },
+            }
+        elif isinstance(output, SendOptionsOutput):
+            list_output = SendInteractiveListOutput(
+                body=output.body,
+                button_label=output.button_label,
+                sections=(
+                    ListSectionDef(
+                        title="",
+                        rows=tuple(
+                            ListRowDef(id=opt.id, title=opt.title)
+                            for opt in output.options
+                        ),
+                    ),
+                ),
+            )
+            body = {
+                "messaging_product": "whatsapp",
+                "to": contact_id,
+                "type": "interactive",
+                "interactive": {
+                    "type": "list",
+                    "body": {"text": list_output.body},
+                    "action": {
+                        "button": list_output.button_label,
+                        "sections": [
+                            {
+                                "title": s.title,
+                                "rows": [
+                                    {
+                                        "id": r.id,
+                                        "title": r.title,
+                                        "description": r.description,
+                                    }
+                                    for r in s.rows
+                                ],
+                            }
+                            for s in list_output.sections
+                        ],
                     },
                 },
             }

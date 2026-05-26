@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from data_plane.adapters.channel.factory import channel_factory
 from data_plane.adapters.connectors.mock import MockConnector
-from data_plane.adapters.state_store.in_memory import InMemoryStateStore
+from data_plane.adapters.state_store.sqlite import SQLiteStateStore
 from data_plane.config import load_tenant_config
 from data_plane.engine.bot import Bot
 from data_plane.engine.flow import load_flow
@@ -24,7 +24,7 @@ def create_app() -> FastAPI:
         app.include_router(router)
 
         flow = load_flow(Path(config.flow_path).read_text())
-        state_store = InMemoryStateStore()
+        state_store = SQLiteStateStore(db_path=os.environ.get("STATE_DB_PATH", "/data/state.db"))
 
         calendar_type = config.connectors.calendar.type
         connector: ConnectorPort

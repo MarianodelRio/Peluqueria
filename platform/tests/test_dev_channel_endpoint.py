@@ -19,15 +19,17 @@ _WA_CONFIG = str(Path(__file__).parent / "configs" / "whatsapp_tenant.yaml")
 
 
 @pytest.fixture()
-def dev_client(monkeypatch):
+def dev_client(monkeypatch, tmp_path):
     monkeypatch.setenv("TENANT_CONFIG_PATH", _DEV_CONFIG)
+    monkeypatch.setenv("STATE_DB_PATH", str(tmp_path / "state.db"))
     with TestClient(create_app()) as c:
         yield c
 
 
 @pytest.fixture()
-def wa_client(monkeypatch):
+def wa_client(monkeypatch, tmp_path):
     monkeypatch.setenv("TENANT_CONFIG_PATH", _WA_CONFIG)
+    monkeypatch.setenv("STATE_DB_PATH", str(tmp_path / "state.db"))
     with TestClient(create_app()) as c:
         yield c
 

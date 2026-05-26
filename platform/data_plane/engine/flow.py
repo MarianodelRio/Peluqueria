@@ -24,6 +24,9 @@ class ActionDef:
     operation: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
     result_key: str | None = None
+    # send_dynamic_options
+    source_key: str | None = None
+    empty_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,9 @@ class TransitionDef:
     on_payload: str | None = None
     on_type: str | None = None
     set_data: dict[str, str] = field(default_factory=dict)
+    on_payload_prefix: str | None = None
+    extract_suffix_as: str | None = None
+    condition: str | None = None
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,7 @@ class Flow:
     initial_state: str
     global_transitions: tuple[TransitionDef, ...]
     states: dict[str, StateDef]
+    services: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def _parse_action(raw: dict[str, Any]) -> ActionDef:
@@ -65,6 +72,8 @@ def _parse_action(raw: dict[str, Any]) -> ActionDef:
         operation=raw.get("operation"),
         params=dict(params_raw) if params_raw else {},
         result_key=raw.get("result_key"),
+        source_key=raw.get("source_key"),
+        empty_text=raw.get("empty_text"),
     )
 
 
@@ -75,6 +84,9 @@ def _parse_transition(raw: dict[str, Any]) -> TransitionDef:
         on_payload=raw.get("on_payload"),
         on_type=raw.get("on_type"),
         set_data=dict(set_data_raw) if set_data_raw else {},
+        on_payload_prefix=raw.get("on_payload_prefix"),
+        extract_suffix_as=raw.get("extract_suffix_as"),
+        condition=raw.get("condition"),
     )
 
 
@@ -95,10 +107,12 @@ def load_flow(yaml_text: str) -> Flow:
 
     global_transitions_raw = raw.get("global_transitions", [])
     states_raw = raw.get("states", {})
+    services_raw = raw.get("services", {})
 
     return Flow(
         id=raw["id"],
         initial_state=raw["initial_state"],
         global_transitions=tuple(_parse_transition(t) for t in global_transitions_raw),
         states={name: _parse_state(name, state) for name, state in states_raw.items()},
+        services=dict(services_raw) if services_raw else {},
     )

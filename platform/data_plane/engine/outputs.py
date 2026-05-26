@@ -43,4 +43,22 @@ class SendInteractiveListOutput:
     sections: tuple[ListSectionDef, ...]
 
 
-Output = Union[SendTextOutput, SendInteractiveButtonsOutput, SendInteractiveListOutput]
+@dataclass(frozen=True)
+class OptionDef:
+    id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class SendOptionsOutput:
+    body: str
+    button_label: str
+    options: tuple[OptionDef, ...]
+
+
+Output = Union[
+    SendTextOutput,
+    SendInteractiveButtonsOutput,
+    SendInteractiveListOutput,
+    SendOptionsOutput,
+]
