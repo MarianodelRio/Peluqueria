@@ -8,6 +8,10 @@ dependencies = [
     "pyyaml",
     "tenacity>=8.2",
     "httpx",
+    "google-api-python-client>=2.131",
+    "google-auth-httplib2>=0.2",
+    "google-auth>=2.29",
+    "httplib2>=0.22",
 ]
 
 [dependency-groups]

@@ -26,6 +26,7 @@ class CalendarConnector(ABC):
         contact_id: str,
         service_key: str,
         contact_name: str,
+        duration_min: int,
     ) -> str:
         """Create a calendar event and return the event ID."""
 
@@ -44,3 +45,15 @@ class CalendarConnector(ABC):
         end: datetime,
     ) -> list[dict[str, Any]]:
         """List all events in the given datetime range."""
+
+    @abstractmethod
+    def mark_reminder_sent(self, event_id: str) -> None:
+        """Mark a calendar event as having had its reminder sent."""
+
+    @abstractmethod
+    def mark_manual_confirmed(self, event_id: str) -> None:
+        """Mark a calendar event as manually confirmed by staff."""
+
+    @abstractmethod
+    def get_pending_manual_events(self, lookahead_days: int) -> list[dict[str, Any]]:
+        """Return events pending manual confirmation within the next lookahead_days days."""

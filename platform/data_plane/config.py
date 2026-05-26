@@ -21,6 +21,12 @@ class ChannelConfig:
 class CalendarConnectorConfig:
     type: str
     credentials_path: str | None = None
+    calendar_id: str | None = None
+    timezone: str = "Europe/Madrid"
+    slot_duration_min: int = 30
+    lookahead_days_client: int = 14
+    lookahead_days_manual: int = 60
+    schedule: dict[str, list[str]] | None = None
 
 
 @dataclass
@@ -68,6 +74,12 @@ def load_tenant_config(path: str) -> TenantConfig:
     calendar = CalendarConnectorConfig(
         type=calendar_raw.get("type", "mock"),
         credentials_path=calendar_raw.get("credentials_path"),
+        calendar_id=calendar_raw.get("calendar_id"),
+        timezone=calendar_raw.get("timezone", "Europe/Madrid"),
+        slot_duration_min=calendar_raw.get("slot_duration_min", 30),
+        lookahead_days_client=calendar_raw.get("lookahead_days_client", 14),
+        lookahead_days_manual=calendar_raw.get("lookahead_days_manual", 60),
+        schedule=calendar_raw.get("schedule"),
     )
     connectors = ConnectorsConfig(calendar=calendar)
 

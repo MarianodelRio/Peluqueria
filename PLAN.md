@@ -483,7 +483,7 @@
 
 > Esta sección se va actualizando a mano según se avanza.
 
-- **Fase actual:** Fase 3b — HTTP Dev Channel + configuración de tenant.
-- **Fases cerradas:** F0 (scaffolding), F1 (Bot Engine standalone), F2 (Connector framework), F3 (Channel Adapter + WhatsApp).
-- **Decisiones cerradas:** stack tecnológico (FastAPI + uvicorn + uv + Python 3.14), formato de flow (YAML declarativo), motor FSM (intérprete propio), `StateStorePort` / `ConnectorPort` / `ChannelAdapter` como ports hexagonales, `degrade_output` para degradación de canal, scheduler push (ver `arquitectura.md`), containers siempre encendidos, config del container en YAML de tenant (`TENANT_CONFIG_PATH`), router por canal (`make_router` factory).
-- **Próximo paso concreto:** implementar F3b según su definición actualizada.
+- **Fase actual:** Fase 4 — Primer conector real: GoogleCalendarAdapter.
+- **Fases cerradas:** F0 (scaffolding), F1 (Bot Engine standalone), F2 (Connector framework), F3 (Channel Adapter + WhatsApp), F3b (HTTP Dev Channel + configuración de tenant).
+- **Decisiones cerradas:** stack tecnológico (FastAPI + uvicorn + uv + Python 3.14), formato de flow (YAML declarativo), motor FSM (intérprete propio), `StateStorePort` / `ConnectorPort` / `ChannelAdapter` como ports hexagonales, `degrade_output` para degradación de canal, scheduler push (ver `arquitectura.md`), containers siempre encendidos, config del container en YAML de tenant (`TENANT_CONFIG_PATH`), router por canal (`make_router` factory), `zoneinfo.ZoneInfo` (stdlib) en lugar de pytz, service account JSON en disco para credenciales Google Calendar, `CalendarConnector` extendido con `mark_reminder_sent`/`mark_manual_confirmed`/`get_pending_manual_events`.
+- **Próximo paso concreto:** smoke test manual del GoogleCalendarAdapter contra un Calendar real (F4 definición de hecho), luego F5 vertical slice peluquería.

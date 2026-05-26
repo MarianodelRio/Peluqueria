@@ -40,3 +40,5 @@ logs/
 
 
 uv.lock
+
+platform/tests/configs/google_calendar_tenant.yaml

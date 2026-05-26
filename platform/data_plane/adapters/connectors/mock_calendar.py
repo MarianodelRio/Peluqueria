@@ -76,6 +76,7 @@ class MockCalendarAdapter(CalendarConnector):
         contact_id: str = "",
         service_key: str = "",
         contact_name: str = "",
+        duration_min: int = 30,
         **kwargs: Any,
     ) -> str:
         self._record_and_check(
@@ -84,6 +85,7 @@ class MockCalendarAdapter(CalendarConnector):
             contact_id=contact_id,
             service_key=service_key,
             contact_name=contact_name,
+            duration_min=duration_min,
             **kwargs,
         )
         return self._preset_event_id
@@ -102,4 +104,14 @@ class MockCalendarAdapter(CalendarConnector):
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         self._record_and_check("list_for_range", start=start, end=end, **kwargs)
+        return []
+
+    def mark_reminder_sent(self, event_id: str = "", **kwargs: Any) -> None:
+        self._record_and_check("mark_reminder_sent", event_id=event_id)
+
+    def mark_manual_confirmed(self, event_id: str = "", **kwargs: Any) -> None:
+        self._record_and_check("mark_manual_confirmed", event_id=event_id)
+
+    def get_pending_manual_events(self, lookahead_days: int = 60, **kwargs: Any) -> list[dict]:
+        self._record_and_check("get_pending_manual_events", lookahead_days=lookahead_days)
         return []

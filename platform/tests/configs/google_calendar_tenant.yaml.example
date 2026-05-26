@@ -1,0 +1,25 @@
+# Example config for smoke testing GoogleCalendarAdapter.
+# Copy to google_calendar_tenant.yaml, fill in real values, then run:
+#   TENANT_CONFIG_PATH=tests/configs/google_calendar_tenant.yaml make run-data-plane
+tenant_id: example_tenant
+flow_path: ../flows/toy_flow.yaml
+
+channel:
+  type: http_dev
+
+connectors:
+  calendar:
+    type: google_calendar
+    credentials_path: "/absolute/path/to/service_account.json"
+    calendar_id: "your_calendar_id@group.calendar.google.com"
+    timezone: "Europe/Madrid"
+    slot_duration_min: 30
+    lookahead_days_client: 14
+    lookahead_days_manual: 60
+    schedule:
+      mon: ["10:00-14:00", "17:00-21:00"]
+      tue: ["10:00-14:00", "17:00-21:00"]
+      wed: ["10:00-14:00", "17:00-21:00"]
+      thu: ["10:00-14:00", "17:00-21:00"]
+      fri: ["10:00-14:00", "17:00-21:00"]
+      sat: ["10:00-14:00"]

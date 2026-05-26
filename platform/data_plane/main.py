@@ -11,6 +11,7 @@ from data_plane.adapters.state_store.in_memory import InMemoryStateStore
 from data_plane.config import load_tenant_config
 from data_plane.engine.bot import Bot
 from data_plane.engine.flow import load_flow
+from data_plane.ports.connector import ConnectorPort
 
 log = logging.getLogger(__name__)
 
@@ -26,8 +27,37 @@ def create_app() -> FastAPI:
         state_store = InMemoryStateStore()
 
         calendar_type = config.connectors.calendar.type
+        connector: ConnectorPort
         if calendar_type == "mock":
             connector = MockConnector()
+        elif calendar_type == "google_calendar":
+            from data_plane.adapters.connectors.google_calendar.adapter import (
+                GoogleCalendarAdapter,
+            )
+            from data_plane.connectors.registry import ConnectorRegistry
+
+            cal_cfg = config.connectors.calendar
+            if cal_cfg.credentials_path is None:
+                raise ValueError(
+                    "[MAIN] google_calendar connector requires 'credentials_path' in tenant config"
+                )
+            if cal_cfg.calendar_id is None:
+                raise ValueError(
+                    "[MAIN] google_calendar connector requires 'calendar_id' in tenant config"
+                )
+            google_adapter = GoogleCalendarAdapter(
+                credentials_path=cal_cfg.credentials_path,
+                calendar_id=cal_cfg.calendar_id,
+                schedule=cal_cfg.schedule or {},
+                timezone=cal_cfg.timezone,
+                slot_duration_min=cal_cfg.slot_duration_min,
+                lookahead_days_client=cal_cfg.lookahead_days_client,
+                lookahead_days_manual=cal_cfg.lookahead_days_manual,
+            )
+            connector = ConnectorRegistry(
+                config={"calendar": {"adapter": "google_calendar"}},
+                adapter_factories={"google_calendar": lambda _creds: google_adapter},
+            )
         else:
             raise ValueError(f"[MAIN] Unsupported calendar connector type: {calendar_type!r}")
 
