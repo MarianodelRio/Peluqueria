@@ -2,17 +2,14 @@
 #  Peluquería Citas — Makefile de despliegue y operación
 #
 #  Uso rápido:
-#    make all          →  instalación completa con ngrok (primera vez)
-#    make all-nginx    →  instalación completa con nginx (primera vez)
-#    make update       →  desplegar cambios de código (día a día)
+#    make all     →  instalación completa con ngrok (primera vez)
+#    make update  →  desplegar cambios de código (día a día)
 #
-#  Configura NGROK_DOMAIN antes de ejecutar make all (modo ngrok).
-#  Configura SERVER_IP   antes de ejecutar make all-nginx (modo nginx).
+#  Configura NGROK_DOMAIN antes de ejecutar make all.
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Variables — edita estas dos líneas según tu caso ──────────────────────
+# ── Variables — edita esta línea según tu caso ─────────────────────────────
 NGROK_DOMAIN := tu-dominio.ngrok-free.app
-SERVER_IP    := 0.0.0.0
 
 # ── Variables automáticas — no tocar ──────────────────────────────────────
 USER        := $(shell whoami)
@@ -36,7 +33,6 @@ help:
 	@echo ""
 	@echo "  PRIMERA INSTALACIÓN"
 	@echo "    make all            Instalación completa con ngrok"
-	@echo "    make all-nginx      Instalación completa con nginx"
 	@echo ""
 	@echo "  OPERACIÓN DIARIA"
 	@echo "    make update         git pull + pip install + restart"
@@ -51,9 +47,6 @@ help:
 	@echo "    make stop           Para todos los servicios"
 	@echo "    make restart        Reinicia todos los servicios"
 	@echo ""
-	@echo "  MIGRACIÓN ngrok → nginx"
-	@echo "    make switch-nginx   Instala nginx, para ngrok, configura SSL"
-	@echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PRIMERA INSTALACIÓN
@@ -63,14 +56,6 @@ help:
 all: _check-env setup install _services-ngrok watchdog
 	@echo ""
 	@echo "  ✓ Instalación completa (modo ngrok)"
-	@echo "  Comprueba el estado con: make status"
-	@echo "  Comprueba el bot con:    make health"
-	@echo ""
-
-.PHONY: all-nginx
-all-nginx: _check-env setup install _services-nginx watchdog
-	@echo ""
-	@echo "  ✓ Instalación completa (modo nginx)"
 	@echo "  Comprueba el estado con: make status"
 	@echo "  Comprueba el bot con:    make health"
 	@echo ""
@@ -134,16 +119,6 @@ _services-ngrok: _service-uvicorn _service-ngrok _service-restart
 	sudo systemctl start ngrok
 	sudo systemctl start peluqueria-restart.timer
 	@echo "   ✓ servicios ngrok activos"
-
-# ── Servicios systemd — modo nginx ────────────────────────────────────────
-
-.PHONY: _services-nginx
-_services-nginx: _service-uvicorn _service-restart _nginx-config
-	sudo systemctl daemon-reload
-	sudo systemctl enable peluqueria nginx peluqueria-restart.timer
-	sudo systemctl start peluqueria nginx
-	sudo systemctl start peluqueria-restart.timer
-	@echo "   ✓ servicios nginx activos"
 
 # ── Generadores de ficheros systemd ───────────────────────────────────────
 
@@ -217,41 +192,6 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-# ── Nginx ──────────────────────────────────────────────────────────────────
-
-.PHONY: _nginx-config
-_nginx-config:
-	@echo "→ Instalando nginx y generando certificado SSL..."
-	sudo apt-get install -y nginx openssl
-	sudo openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-		-keyout /etc/ssl/private/peluqueria.key \
-		-out /etc/ssl/certs/peluqueria.crt \
-		-subj "/CN=$(SERVER_IP)" 2>/dev/null
-	@sudo tee /etc/nginx/sites-available/peluqueria > /dev/null <<EOF
-server {
-    listen 443 ssl;
-    server_name $(SERVER_IP);
-    ssl_certificate     /etc/ssl/certs/peluqueria.crt;
-    ssl_certificate_key /etc/ssl/private/peluqueria.key;
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host \$$host;
-        proxy_set_header X-Real-IP \$$remote_addr;
-        proxy_set_header X-Forwarded-For \$$proxy_add_x_forwarded_for;
-        proxy_read_timeout 30s;
-    }
-}
-server {
-    listen 80;
-    server_name $(SERVER_IP);
-    return 301 https://\$$host\$$request_uri;
-}
-EOF
-	sudo ln -sf /etc/nginx/sites-available/peluqueria /etc/nginx/sites-enabled/
-	sudo rm -f /etc/nginx/sites-enabled/default
-	sudo nginx -t
-	@echo "   ✓ nginx configurado"
-
 # ── Watchdog cron ──────────────────────────────────────────────────────────
 
 .PHONY: watchdog
@@ -281,10 +221,8 @@ status:
 	@echo "── peluqueria ──────────────────────────────────────────"
 	@sudo systemctl status peluqueria --no-pager -l | head -8
 	@echo ""
-	@echo "── ngrok / nginx ───────────────────────────────────────"
-	@sudo systemctl status ngrok --no-pager -l 2>/dev/null | head -6 \
-		|| sudo systemctl status nginx --no-pager -l 2>/dev/null | head -6 \
-		|| echo "   ningún túnel activo"
+	@echo "── ngrok ───────────────────────────────────────────────"
+	@sudo systemctl status ngrok --no-pager -l | head -6
 	@echo ""
 	@echo "── reinicio nocturno ───────────────────────────────────"
 	@sudo systemctl status peluqueria-restart.timer --no-pager -l | head -5
@@ -313,37 +251,19 @@ logs-watchdog:
 start:
 	sudo systemctl start peluqueria
 	@sleep 2
-	sudo systemctl start ngrok 2>/dev/null || sudo systemctl start nginx 2>/dev/null || true
+	sudo systemctl start ngrok
 	@echo "   ✓ servicios arrancados"
 
 .PHONY: stop
 stop:
 	sudo systemctl stop peluqueria
-	sudo systemctl stop ngrok 2>/dev/null || sudo systemctl stop nginx 2>/dev/null || true
+	sudo systemctl stop ngrok
 	@echo "   ✓ servicios parados"
 
 .PHONY: restart
 restart:
 	sudo systemctl restart peluqueria
 	@sleep 2
-	sudo systemctl restart ngrok 2>/dev/null || sudo systemctl restart nginx 2>/dev/null || true
+	sudo systemctl restart ngrok
 	@echo "   ✓ servicios reiniciados"
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MIGRACIÓN ngrok → nginx
-# ══════════════════════════════════════════════════════════════════════════════
-
-.PHONY: switch-nginx
-switch-nginx: _nginx-config _service-restart
-	@echo "→ Parando ngrok y activando nginx..."
-	sudo systemctl stop ngrok 2>/dev/null || true
-	sudo systemctl disable ngrok 2>/dev/null || true
-	sudo systemctl daemon-reload
-	sudo systemctl enable nginx
-	sudo systemctl restart nginx
-	sudo systemctl restart peluqueria-restart.timer
-	@echo ""
-	@echo "   ✓ Migración completada"
-	@echo "   Ahora actualiza la URL del webhook en Meta:"
-	@echo "   https://$(SERVER_IP)/webhook"
-	@echo ""
