@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 
 from data_plane.ports.connector import ConnectorPort
 from data_plane.ports.state_store import StateStorePort
@@ -45,6 +45,7 @@ class Bot:
                     updated_at=datetime.utcnow(),
                 )
 
+            state.data["today"] = date.today().isoformat()
             new_state, outputs = self._interpreter.process(
                 message, state, self._connector
             )

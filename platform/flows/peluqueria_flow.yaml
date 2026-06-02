@@ -1,0 +1,202 @@
+id: peluqueria_flow_v1
+initial_state: MENU
+
+services:
+  corte:
+    name: "Corte de pelo"
+    price: "10€"
+    duracion_min: 30
+    presencia_min: 30
+  barba:
+    name: "Arreglo de barba"
+    price: "8€"
+    duracion_min: 20
+    presencia_min: 20
+  combo:
+    name: "Corte + barba"
+    price: "15€"
+    duracion_min: 45
+    presencia_min: 45
+
+global_transitions:
+  - on_payload: "back_to_menu"
+    target: MENU
+
+states:
+  MENU:
+    on_enter:
+      - action: send_interactive_buttons
+        body: "¡Hola! ¿Qué quieres hacer?"
+        buttons:
+          - id: "menu_book"
+            title: "Reservar cita"
+          - id: "menu_view"
+            title: "Ver mis citas"
+          - id: "menu_cancel"
+            title: "Cancelar cita"
+    transitions:
+      - on_payload: "menu_book"
+        target: BOOK_SELECT_SERVICE
+      - on_payload: "menu_view"
+        target: VIEW_APPOINTMENTS
+      - on_payload: "menu_cancel"
+        target: CANCEL_SELECT
+    fallback: MENU
+
+  BOOK_SELECT_SERVICE:
+    on_enter:
+      - action: send_interactive_buttons
+        body: "¿Qué servicio quieres?"
+        buttons:
+          - id: "service_corte"
+            title: "Corte de pelo"
+          - id: "service_barba"
+            title: "Arreglo de barba"
+          - id: "service_combo"
+            title: "Corte + barba"
+    transitions:
+      - on_payload_prefix: "service_"
+        extract_suffix_as: "selected_service"
+        target: BOOK_SELECT_DAY
+    fallback: BOOK_SELECT_SERVICE
+
+  BOOK_SELECT_DAY:
+    on_enter:
+      - action: invoke_connector
+        connector: calendar
+        operation: get_available_days
+        params:
+          from_date: "{{data.today}}"
+          service_duration_min: "{{data.service_duracion_min}}"
+          presence_min: "{{data.service_presencia_min}}"
+          lookahead_days: 14
+        result_key: available_days
+      - action: send_dynamic_options
+        source_key: "available_days"
+        text: "¿Qué día prefieres?"
+        button_label: "Ver días"
+        empty_text: "No hay días disponibles en los próximos 14 días."
+    transitions:
+      - on_payload_prefix: "day_"
+        extract_suffix_as: "selected_date"
+        target: BOOK_SELECT_PERIOD
+        condition: "data.selected_service"
+    fallback: MENU
+
+  BOOK_SELECT_PERIOD:
+    on_enter:
+      - action: send_interactive_buttons
+        body: "¿Mañana o tarde?"
+        buttons:
+          - id: "period_morning"
+            title: "Mañana"
+          - id: "period_afternoon"
+            title: "Tarde"
+    transitions:
+      - on_payload: "period_morning"
+        target: BOOK_SELECT_HOUR
+        set_data:
+          selected_period: "morning"
+      - on_payload: "period_afternoon"
+        target: BOOK_SELECT_HOUR
+        set_data:
+          selected_period: "afternoon"
+    fallback: BOOK_SELECT_PERIOD
+
+  BOOK_SELECT_HOUR:
+    on_enter:
+      - action: invoke_connector
+        connector: calendar
+        operation: get_slots_for_day
+        params:
+          date_str: "{{data.selected_date}}"
+          period: "{{data.selected_period}}"
+          service_duration_min: "{{data.service_duracion_min}}"
+          presence_min: "{{data.service_presencia_min}}"
+        result_key: available_slots
+      - action: send_dynamic_options
+        source_key: "available_slots"
+        text: "¿A qué hora?"
+        button_label: "Ver horas"
+        empty_text: "No hay horas disponibles en ese turno."
+    transitions:
+      - on_payload_prefix: "hour_"
+        extract_suffix_as: "selected_slot"
+        target: BOOK_ENTER_NAME
+        condition: "data.selected_date"
+    fallback: MENU
+
+  BOOK_ENTER_NAME:
+    on_enter:
+      - action: send_text
+        text: "¿A nombre de quién reservo?"
+    transitions:
+      - on_type: "text"
+        set_data:
+          contact_name: "{{message.text}}"
+        target: BOOK_CONFIRM
+    fallback: BOOK_ENTER_NAME
+
+  BOOK_CONFIRM:
+    on_enter:
+      - action: invoke_connector
+        connector: calendar
+        operation: book_appointment
+        params:
+          slot: "{{data.selected_slot}}"
+          contact_id: "{{message.contact_id}}"
+          service_key: "{{data.selected_service}}"
+          contact_name: "{{data.contact_name}}"
+          duration_min: "{{data.service_duracion_min}}"
+        result_key: booking_result
+      - action: send_text
+        text: "{{data.booking_result.message}}"
+    transitions: []
+    fallback: MENU
+
+  VIEW_APPOINTMENTS:
+    on_enter:
+      - action: invoke_connector
+        connector: calendar
+        operation: get_future_appointments
+        params:
+          contact_id: "{{message.contact_id}}"
+        result_key: appointments
+      - action: send_dynamic_options
+        source_key: "appointments"
+        text: "Tus próximas citas:"
+        button_label: "Ver citas"
+        empty_text: "No tienes citas próximas."
+    transitions: []
+    fallback: MENU
+
+  CANCEL_SELECT:
+    on_enter:
+      - action: invoke_connector
+        connector: calendar
+        operation: get_future_appointments
+        params:
+          contact_id: "{{message.contact_id}}"
+        result_key: appointments
+      - action: send_dynamic_options
+        source_key: "appointments"
+        text: "¿Cuál cita quieres cancelar?"
+        button_label: "Ver citas"
+        empty_text: "No tienes citas activas."
+    transitions:
+      - on_payload_prefix: "cancel_appt_"
+        extract_suffix_as: "cancel_event_id"
+        target: CANCEL_CONFIRM
+    fallback: MENU
+
+  CANCEL_CONFIRM:
+    on_enter:
+      - action: invoke_connector
+        connector: calendar
+        operation: cancel_event
+        params:
+          event_id: "{{data.cancel_event_id}}"
+      - action: send_text
+        text: "Tu cita ha sido cancelada."
+    transitions: []
+    fallback: MENU

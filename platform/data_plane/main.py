@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from data_plane.adapters.channel.factory import channel_factory
 from data_plane.adapters.connectors.mock import MockConnector
+from data_plane.adapters.connectors.mock_calendar import MockCalendarAdapter
 from data_plane.adapters.state_store.sqlite import SQLiteStateStore
 from data_plane.config import load_tenant_config
 from data_plane.engine.bot import Bot
@@ -57,6 +58,14 @@ def create_app() -> FastAPI:
             connector = ConnectorRegistry(
                 config={"calendar": {"adapter": "google_calendar"}},
                 adapter_factories={"google_calendar": lambda _creds: google_adapter},
+            )
+        elif calendar_type == "mock_calendar":
+            from data_plane.connectors.registry import ConnectorRegistry
+
+            mock_adapter = MockCalendarAdapter()
+            connector = ConnectorRegistry(
+                config={"calendar": {"adapter": "mock_calendar"}},
+                adapter_factories={"mock_calendar": lambda _creds: mock_adapter},
             )
         else:
             raise ValueError(f"[MAIN] Unsupported calendar connector type: {calendar_type!r}")

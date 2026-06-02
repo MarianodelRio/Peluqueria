@@ -26,11 +26,19 @@ class MockCalendarAdapter(CalendarConnector):
         permanent_failure: bool = False,
         preset_slots: list[str] | None = None,
         preset_event_id: str = "evt_mock",
+        preset_available_days: list[dict] | None = None,
+        preset_slots_for_day: list[dict] | None = None,
+        preset_book_result: dict | None = None,
+        preset_appointments: list[dict] | None = None,
     ) -> None:
         self._transient_failures = transient_failures
         self._permanent_failure = permanent_failure
         self._preset_slots = preset_slots
         self._preset_event_id = preset_event_id
+        self.preset_available_days = preset_available_days
+        self.preset_slots_for_day = preset_slots_for_day
+        self.preset_book_result = preset_book_result
+        self.preset_appointments = preset_appointments
         self.calls: list[dict[str, Any]] = []
         self._call_count = 0
 
@@ -115,3 +123,68 @@ class MockCalendarAdapter(CalendarConnector):
     def get_pending_manual_events(self, lookahead_days: int = 60, **kwargs: Any) -> list[dict]:
         self._record_and_check("get_pending_manual_events", lookahead_days=lookahead_days)
         return []
+
+    def get_available_days(
+        self,
+        from_date: str = "",
+        service_duration_min: int = 0,
+        presence_min: int = 0,
+        lookahead_days: int = 14,
+        **kwargs: Any,
+    ) -> list[dict]:
+        self._record_and_check(
+            "get_available_days",
+            from_date=from_date,
+            service_duration_min=service_duration_min,
+            presence_min=presence_min,
+            lookahead_days=lookahead_days,
+        )
+        return self.preset_available_days if self.preset_available_days is not None else []
+
+    def get_slots_for_day(
+        self,
+        date_str: str = "",
+        period: str = "all",
+        service_duration_min: int = 0,
+        presence_min: int = 0,
+        **kwargs: Any,
+    ) -> list[dict]:
+        self._record_and_check(
+            "get_slots_for_day",
+            date_str=date_str,
+            period=period,
+            service_duration_min=service_duration_min,
+            presence_min=presence_min,
+        )
+        return self.preset_slots_for_day if self.preset_slots_for_day is not None else []
+
+    def book_appointment(
+        self,
+        slot: str = "",
+        contact_id: str = "",
+        service_key: str = "",
+        contact_name: str = "",
+        duration_min: int = 30,
+        **kwargs: Any,
+    ) -> dict:
+        self._record_and_check(
+            "book_appointment",
+            slot=slot,
+            contact_id=contact_id,
+            service_key=service_key,
+            contact_name=contact_name,
+            duration_min=duration_min,
+        )
+        return self.preset_book_result if self.preset_book_result is not None else {
+            "success": True,
+            "event_id": "evt_mock_booked",
+            "message": "Cita reservada",
+        }
+
+    def get_future_appointments(
+        self,
+        contact_id: str = "",
+        **kwargs: Any,
+    ) -> list[dict]:
+        self._record_and_check("get_future_appointments", contact_id=contact_id)
+        return self.preset_appointments if self.preset_appointments is not None else []

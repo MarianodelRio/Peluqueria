@@ -1,0 +1,23 @@
+tenant_id: peluqueria_sur
+flow_path: ../flows/peluqueria_flow.yaml
+
+channel:
+  type: http_dev
+
+connectors:
+  calendar:
+    type: mock_calendar
+    credentials_path: /secrets/service_account.json
+    calendar_id: "test_calendar"
+    timezone: "Europe/Madrid"
+    slot_duration_min: 30
+    lookahead_days_client: 14
+    lookahead_days_manual: 60
+    schedule:
+      mon: ["10:00-14:00", "17:00-21:00"]
+      tue: ["10:00-14:00", "17:00-21:00"]
+      wed: ["10:00-14:00", "17:00-21:00"]
+      thu: ["10:00-14:00", "17:00-21:00"]
+      fri: ["10:00-14:00", "17:00-21:00"]
+      sat: ["10:00-14:00"]
+      sun: []

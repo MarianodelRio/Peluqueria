@@ -1,8 +1,12 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 WORKDIR /app
 RUN pip install uv
 COPY pyproject.toml .
-RUN uv sync --no-dev
+COPY uv.lock .
+RUN uv sync --frozen --no-dev
 COPY . .
 ENV PYTHONPATH=/app
-CMD ["uv", "run", "uvicorn", "data_plane.main:app", "--host", "0.0.0.0", "--port", "8002"]
+ENV TENANT_CONFIG_PATH=/config/tenant.yaml
+VOLUME /data
+EXPOSE 8000
+CMD ["uv", "run", "uvicorn", "data_plane.main:app", "--host", "0.0.0.0", "--port", "8000"]

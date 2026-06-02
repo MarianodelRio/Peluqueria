@@ -57,3 +57,41 @@ class CalendarConnector(ABC):
     @abstractmethod
     def get_pending_manual_events(self, lookahead_days: int) -> list[dict[str, Any]]:
         """Return events pending manual confirmation within the next lookahead_days days."""
+
+    @abstractmethod
+    def get_available_days(
+        self,
+        from_date: str,
+        service_duration_min: int,
+        presence_min: int,
+        lookahead_days: int,
+    ) -> list[dict]:
+        """Return days with ≥1 available slot. Each dict: {id: "day_YYYY-MM-DD", title: "..."}."""
+
+    @abstractmethod
+    def get_slots_for_day(
+        self,
+        date_str: str,
+        period: str,
+        service_duration_min: int,
+        presence_min: int,
+    ) -> list[dict]:
+        """Return available slots for a day/period. Each dict: {id: "hour_YYYY-MM-DD_HHMM", ...}."""
+
+    @abstractmethod
+    def book_appointment(
+        self,
+        slot: str,
+        contact_id: str,
+        service_key: str,
+        contact_name: str,
+        duration_min: int,
+    ) -> dict:
+        """Book a slot. Returns {success: bool, event_id: str|None, message: str}."""
+
+    @abstractmethod
+    def get_future_appointments(
+        self,
+        contact_id: str,
+    ) -> list[dict]:
+        """Return future appointments for a contact. Each dict: {id: "cancel_appt_{eid}", ...}."""

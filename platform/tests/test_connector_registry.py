@@ -78,7 +78,7 @@ def test_registry_routes_calendar_list_slots() -> None:
 
     result = registry.invoke("calendar", "list_slots", {})
 
-    assert result == {"result": ["09:00", "10:00"]}
+    assert result == {"items": ["09:00", "10:00"]}
     assert len(adapter.calls) == 1
 
 
@@ -120,7 +120,7 @@ def test_transient_error_retries_and_succeeds() -> None:
     result = registry.invoke("calendar", "list_slots", {})
 
     assert len(adapter.calls) == 3
-    assert result == {"result": ["09:00", "10:00"]}
+    assert result == {"items": ["09:00", "10:00"]}
 
 
 def test_three_transient_errors_exhaust_retries() -> None:
@@ -206,8 +206,8 @@ def test_bot_engine_with_registry() -> None:
     assert saved.current_state == "CONFIRM"
     assert saved.data["customer_name"] == "Ana"
 
-    # The invoke_connector result is {"result": ["09:00", "10:00"]}
-    assert saved.data["available_slots"] == {"result": ["09:00", "10:00"]}
+    # The invoke_connector result is a list (unwrapped from {"items": [...]})
+    assert saved.data["available_slots"] == ["09:00", "10:00"]
 
     # on_enter of CONFIRM sends "Slots ready."
     assert len(outputs) == 1

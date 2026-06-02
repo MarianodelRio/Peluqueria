@@ -183,7 +183,10 @@ def _run_on_enter(
                 operation=action.operation or "",
                 params=params,
             )
-            if action.result_key:
+            # Unwrap {"items": [...]} registry normalization for list-returning connectors
+            if action.result_key and isinstance(result, dict) and list(result.keys()) == ["items"]:
+                state.data[action.result_key] = result["items"]
+            elif action.result_key:
                 state.data[action.result_key] = result
 
     return outputs

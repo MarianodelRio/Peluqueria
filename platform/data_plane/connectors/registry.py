@@ -115,4 +115,4 @@ class ConnectorRegistry(ConnectorPort):
             return value
         if value is None:
             return {}
-        return {"result": value}
+        return {"items": value}
