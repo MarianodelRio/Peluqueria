@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from data_plane.engine.outputs import (
@@ -166,6 +168,10 @@ def make_router(adapter: HttpDevChannelAdapter) -> APIRouter:
     from data_plane._process import _process_message  # avoid circular at module load
 
     router = APIRouter()
+
+    @router.get("/", response_class=HTMLResponse)
+    def chat_ui() -> str:
+        return (Path(__file__).resolve().parent / "chat_ui.html").read_text()
 
     @router.post("/inbound")
     def inbound(body: InboundPayload, request: Request) -> dict:

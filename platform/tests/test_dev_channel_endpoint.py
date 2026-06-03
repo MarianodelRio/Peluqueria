@@ -123,3 +123,15 @@ def test_whatsapp_endpoints_absent_when_dev_config(dev_client):
         },
     )
     assert resp.status_code == 404
+
+
+def test_chat_ui_served_for_dev_channel(dev_client):
+    response = dev_client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "x-data" in response.text
+
+
+def test_chat_ui_absent_for_whatsapp_channel(wa_client):
+    response = wa_client.get("/")
+    assert response.status_code == 404

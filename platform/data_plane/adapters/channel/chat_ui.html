@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bot Dev Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col items-center justify-center">
+
+<div
+  x-data="chat()"
+  x-init="init()"
+  x-cloak
+  class="flex flex-col w-full max-w-lg h-full sm:h-[90vh] bg-white shadow-xl rounded-xl overflow-hidden"
+>
+
+  <!-- Header -->
+  <div class="flex items-center gap-3 px-4 py-3 bg-green-600 text-white">
+    <div class="font-semibold text-sm">Bot Dev Chat</div>
+    <div class="flex items-center gap-1 ml-auto">
+      <label class="text-xs opacity-80">contact_id:</label>
+      <input
+        x-model="contactId"
+        class="rounded px-2 py-0.5 text-xs text-gray-800 w-28"
+        type="text"
+      />
+    </div>
+    <button
+      @click="clearChat()"
+      class="ml-2 text-xs bg-green-800 hover:bg-green-900 rounded px-3 py-1"
+    >Clear</button>
+  </div>
+
+  <!-- Chat area -->
+  <div
+    id="chat-scroll"
+    class="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-gray-50"
+  >
+    <template x-for="(msg, idx) in messages" :key="idx">
+      <div>
+
+        <!-- TEXT -->
+        <template x-if="msg.type === 'text' && msg._side === 'bot'">
+          <div class="flex justify-start">
+            <div class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2 max-w-xs text-sm text-gray-800 shadow-sm"
+                 x-text="msg.text"></div>
+          </div>
+        </template>
+
+        <template x-if="msg.type === 'text' && msg._side === 'user'">
+          <div class="flex justify-end">
+            <div class="bg-green-500 text-white rounded-2xl rounded-tr-sm px-4 py-2 max-w-xs text-sm shadow-sm"
+                 x-text="msg.text"></div>
+          </div>
+        </template>
+
+        <!-- INTERACTIVE BUTTONS -->
+        <template x-if="msg.type === 'interactive_buttons'">
+          <div class="flex flex-col items-start gap-1">
+            <div class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2 max-w-xs text-sm text-gray-800 shadow-sm"
+                 x-text="msg.body"></div>
+            <div class="flex flex-wrap gap-2 mt-1"
+                 :class="msg._used ? 'pointer-events-none opacity-50' : ''">
+              <template x-for="btn in msg.buttons" :key="btn.id">
+                <button
+                  @click="sendButtonReply(btn, msg)"
+                  class="border border-green-500 text-green-700 hover:bg-green-50 rounded-full px-4 py-1 text-sm font-medium transition"
+                  x-text="btn.title"
+                ></button>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- INTERACTIVE LIST -->
+        <template x-if="msg.type === 'interactive_list'">
+          <div class="flex flex-col items-start gap-1">
+            <div class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2 max-w-xs text-sm text-gray-800 shadow-sm"
+                 x-text="msg.body"></div>
+            <button
+              @click="openModal(msg)"
+              :disabled="msg._used"
+              :class="msg._used ? 'pointer-events-none opacity-50' : ''"
+              class="border border-green-500 text-green-700 hover:bg-green-50 rounded-full px-4 py-1 text-sm font-medium transition mt-1"
+            >View options</button>
+          </div>
+        </template>
+
+        <!-- OPTIONS -->
+        <template x-if="msg.type === 'options'">
+          <div class="flex flex-col items-start gap-1">
+            <div class="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2 max-w-xs text-sm text-gray-800 shadow-sm"
+                 x-text="msg.body"></div>
+            <button
+              @click="openModal(msg)"
+              :disabled="msg._used"
+              :class="msg._used ? 'pointer-events-none opacity-50' : ''"
+              class="border border-green-500 text-green-700 hover:bg-green-50 rounded-full px-4 py-1 text-sm font-medium transition mt-1"
+            >View options</button>
+          </div>
+        </template>
+
+      </div>
+    </template>
+  </div>
+
+  <!-- Input bar -->
+  <div class="flex items-center gap-2 px-4 py-3 border-t bg-white">
+    <input
+      x-model="inputText"
+      @keydown.enter="sendText()"
+      type="text"
+      placeholder="Type a message..."
+      class="flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-green-400"
+    />
+    <button
+      @click="sendText()"
+      class="bg-green-600 hover:bg-green-700 text-white rounded-full px-5 py-2 text-sm font-medium transition"
+    >Send</button>
+  </div>
+
+  <!-- Modal -->
+  <div
+    x-show="modalOpen"
+    class="absolute inset-0 bg-black bg-opacity-40 flex items-end justify-center z-10"
+    @click.self="modalOpen = false"
+  >
+    <div class="bg-white w-full max-w-lg rounded-t-2xl p-4 max-h-[60vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-3">
+        <span class="font-semibold text-gray-700 text-sm" x-text="modalMsg ? modalMsg.body : ''"></span>
+        <button @click="modalOpen = false" class="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+      </div>
+
+      <!-- Sections-based list -->
+      <template x-if="modalMsg && modalMsg.sections && modalMsg.sections.length > 0">
+        <div>
+          <template x-for="section in modalMsg.sections" :key="section.title">
+            <div class="mb-3">
+              <div class="text-xs font-semibold text-gray-400 uppercase mb-1 px-1" x-text="section.title"></div>
+              <template x-for="row in section.rows" :key="row.id">
+                <button
+                  @click="sendListReply(row, modalMsg)"
+                  class="w-full text-left px-3 py-2 rounded-lg hover:bg-green-50 text-sm text-gray-700 border border-transparent hover:border-green-200 transition mb-1"
+                  x-text="row.title"
+                ></button>
+              </template>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Flat rows (options type) -->
+      <template x-if="modalMsg && (!modalMsg.sections || modalMsg.sections.length === 0) && modalMsg.rows && modalMsg.rows.length > 0">
+        <div>
+          <template x-for="row in modalMsg.rows" :key="row.id">
+            <button
+              @click="sendListReply(row, modalMsg)"
+              class="w-full text-left px-3 py-2 rounded-lg hover:bg-green-50 text-sm text-gray-700 border border-transparent hover:border-green-200 transition mb-1"
+              x-text="row.title"
+            ></button>
+          </template>
+        </div>
+      </template>
+
+      <!-- options type with options array -->
+      <template x-if="modalMsg && modalMsg.type === 'options' && modalMsg.options && modalMsg.options.length > 0 && (!modalMsg.sections || modalMsg.sections.length === 0)">
+        <div>
+          <template x-for="opt in modalMsg.options" :key="opt.id">
+            <button
+              @click="sendListReply(opt, modalMsg)"
+              class="w-full text-left px-3 py-2 rounded-lg hover:bg-green-50 text-sm text-gray-700 border border-transparent hover:border-green-200 transition mb-1"
+              x-text="opt.title"
+            ></button>
+          </template>
+        </div>
+      </template>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function chat() {
+    return {
+      contactId: 'dev_user',
+      inputText: '',
+      messages: [],
+      modalOpen: false,
+      modalMsg: null,
+      _pollInterval: null,
+
+      init() {
+        this._pollInterval = setInterval(() => this.poll(), 500);
+      },
+
+      clearChat() {
+        this.messages = [];
+      },
+
+      scrollToBottom() {
+        this.$nextTick(() => {
+          const el = document.getElementById('chat-scroll');
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      },
+
+      async poll() {
+        try {
+          const res = await fetch('/messages');
+          if (!res.ok) return;
+          const data = await res.json();
+          const incoming = data.messages || [];
+          if (incoming.length > 0) {
+            for (const m of incoming) {
+              m._side = 'bot';
+              m._used = false;
+              this.messages.push(m);
+            }
+            this.scrollToBottom();
+          }
+        } catch (_) { /* ignore network errors */ }
+      },
+
+      async sendText() {
+        const text = this.inputText.trim();
+        if (!text) return;
+        this.inputText = '';
+        this.messages.push({ type: 'text', text, _side: 'user' });
+        this.scrollToBottom();
+        try {
+          await fetch('/inbound', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contact_id: this.contactId, type: 'text', text }),
+          });
+        } catch (_) { /* ignore */ }
+        await this.poll();
+      },
+
+      async sendButtonReply(btn, msg) {
+        if (msg._used) return;
+        msg._used = true;
+        this.messages.push({ type: 'text', text: btn.title, _side: 'user' });
+        this.scrollToBottom();
+        try {
+          await fetch('/inbound', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contact_id: this.contactId, type: 'button_reply', payload: btn.id }),
+          });
+        } catch (_) { /* ignore */ }
+        await this.poll();
+      },
+
+      openModal(msg) {
+        if (msg._used) return;
+        this.modalMsg = msg;
+        this.modalOpen = true;
+      },
+
+      async sendListReply(row, msg) {
+        // Both interactive_list and options selections are posted as list_reply because
+        // the adapter's receive() maps both to MessageType.LIST_REPLY.
+        this.modalOpen = false;
+        msg._used = true;
+        this.messages.push({ type: 'text', text: row.title, _side: 'user' });
+        this.scrollToBottom();
+        try {
+          await fetch('/inbound', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contact_id: this.contactId, type: 'list_reply', payload: row.id }),
+          });
+        } catch (_) { /* ignore */ }
+        await this.poll();
+      },
+    };
+  }
+</script>
+
+</body>
+</html>
