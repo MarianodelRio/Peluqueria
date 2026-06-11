@@ -141,9 +141,9 @@ El fichero `config.yaml` en la raíz contiene toda la configuración del negocio
 
 ```yaml
 negocio:
-  nombre: "DM Barber Shop"
-  telefono_contacto: "+34 676 27 38 00"  # número del negocio (para el QR)
-  admin_phone: "34676273800"              # recibe alertas del watchdog y puede usar /estado
+  nombre: "Mi Peluquería"
+  telefono_contacto: "+34 600 000 000"  # número del negocio (para el QR)
+  admin_phone: "34600000000"             # recibe alertas del watchdog y puede usar /estado
 
 horario:
   lunes:
