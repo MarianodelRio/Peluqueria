@@ -5,7 +5,7 @@ Thin wrappers around the API that return normalised dicts.
 """
 import logging
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import List
 
 import pytz
 
@@ -75,9 +75,11 @@ class EventsRepository:
     def list_for_range(self, start: date, end: date, service=None) -> dict:
         """
         Fetch all events for every date in [start, end] inclusive via a single API call.
-        Returns dict[date, List[dict]] where each value uses the same format as list_for_day.
-        Paginates automatically, capped at 5 pages to prevent runaway loops.
-        The optional `service` parameter exists for the legacy _get_events_in_range shim.
+        Returns dict[date, List[dict]] where each value uses the same
+        format as list_for_day.
+        Paginates automatically, capped at 5 pages.
+        The optional `service` parameter exists for the legacy
+        _get_events_in_range shim.
         """
         svc = service if service is not None else self._client.get_service()
 
@@ -124,8 +126,12 @@ class EventsRepository:
                     d = start_d
                     while d < end_d:
                         if d in buckets:
-                            day_start = TZ.localize(datetime(d.year, d.month, d.day, 0, 0, 0))
-                            day_end = TZ.localize(datetime(d.year, d.month, d.day, 23, 59, 59))
+                            day_start = TZ.localize(
+                                datetime(d.year, d.month, d.day, 0, 0, 0)
+                            )
+                            day_end = TZ.localize(
+                                datetime(d.year, d.month, d.day, 23, 59, 59)
+                            )
                             buckets[d].append({
                                 'id': event_id,
                                 'title': title,
@@ -137,7 +143,10 @@ class EventsRepository:
                         d += timedelta(days=1)
                 else:
                     # Timed event — bucket by start date
-                    start_dt = datetime.fromisoformat(start_raw['dateTime']).astimezone(TZ)
+                    start_dt = (
+                        datetime.fromisoformat(start_raw['dateTime'])
+                        .astimezone(TZ)
+                    )
                     end_dt = datetime.fromisoformat(end_raw['dateTime']).astimezone(TZ)
                     d = start_dt.date()
                     if d in buckets:

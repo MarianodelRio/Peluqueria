@@ -4,7 +4,7 @@ Read-only Calendar queries: events for scheduler jobs and client-facing lookups.
 These functions do not modify any Calendar event and have no side-effects on cache.
 """
 import logging
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import pytz
@@ -18,7 +18,7 @@ from app.utils import metrics
 from app.utils.security import mask_phone
 from app.utils.parser import (
     parse_nombre, parse_tel, parse_estado, parse_reminder,
-    parse_cfg, set_field, parse_servicio_from_title,
+    parse_cfg, parse_servicio_from_title,
 )
 
 from .client import client
@@ -200,7 +200,10 @@ def get_citas_futuras(telefono: str) -> list:
 
         return citas
     except Exception as e:
-        logger.error(f"[CAL] Error fetching citas for {mask_phone(telefono)}: {e}", exc_info=True)
+        logger.error(
+            f"[CAL] Error fetching citas for {mask_phone(telefono)}: {e}",
+            exc_info=True,
+        )
         metrics.inc('calendar_errors')
         return []
 
@@ -222,7 +225,9 @@ def get_event_by_id(event_id: str, phone: str) -> Optional[dict]:
             fields='id,summary,description,start,end',
         ).execute(num_retries=2)
     except Exception as e:
-        logger.debug(f"[CAL] get_event_by_id not found or error event_id={event_id}: {e}")
+        logger.debug(
+            f"[CAL] get_event_by_id not found or error event_id={event_id}: {e}"
+        )
         return None
 
     title = event.get('summary', '') or ''

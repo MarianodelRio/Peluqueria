@@ -6,7 +6,7 @@ Google Calendar API is mocked entirely — no real credentials needed.
 import pytest
 import threading
 from datetime import date, datetime, timedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import pytz
 
 from app.config import HORARIO_BASE, SERVICIOS
@@ -42,7 +42,7 @@ def make_all_day_event(event_id, summary, d: date):
 @pytest.fixture(autouse=True)
 def reset_thread_local():
     """Force _get_service to rebuild on each test (avoid state leakage).
-    Also clears the slot cache and citas cache so tests don't interfere with each other.
+    Also clears the slot cache and citas cache so tests don't interfere.
     """
     import app.services.calendar as cal
     if hasattr(cal._thread_local, "service"):
@@ -68,7 +68,7 @@ def mock_service():
 
 @pytest.fixture
 def cal_with_service(mock_service):
-    """Patch client.get_service to return mock_service (covers service.py and repository.py calls)."""
+    """Patch client.get_service to return mock_service."""
     import app.services.calendar as cal
     with patch.object(cal.client, "get_service", return_value=mock_service):
         yield cal, mock_service
@@ -129,10 +129,13 @@ class TestGetSlotsDisponibles:
     def test_occupied_slot_removed(self, cal_with_service):
         cal, svc = cal_with_service
         d = date(2026, 3, 24)
+        desc = (
+            "Nombre: Ana\nTelefono: 34600000001\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
-                "evt1", "Cita - Ana",
-                "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no",
+                "evt1", "Cita - Ana", desc,
                 aware(2026, 3, 24, 10, 0), aware(2026, 3, 24, 10, 30)
             )]
         }
@@ -144,10 +147,13 @@ class TestGetSlotsDisponibles:
         """An event at 11:30-12:00 blocks 10:00 when duration is 120 min."""
         cal, svc = cal_with_service
         tuesday = date(2026, 3, 24)
+        desc = (
+            "Nombre: Luis\nTelefono: 34600000002\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
-                "evt1", "Cita - Luis",
-                "Nombre: Luis\nTelefono: 34600000002\nEstado: confirmada\nRecordatorio: no",
+                "evt1", "Cita - Luis", desc,
                 aware(2026, 3, 24, 11, 30), aware(2026, 3, 24, 12, 0)
             )]
         }
@@ -158,10 +164,13 @@ class TestGetSlotsDisponibles:
         """An event at 12:30-13:00 does not block 10:00 when duration is 120 min."""
         cal, svc = cal_with_service
         tuesday = date(2026, 3, 24)
+        desc = (
+            "Nombre: Luis\nTelefono: 34600000002\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
-                "evt1", "Cita - Luis",
-                "Nombre: Luis\nTelefono: 34600000002\nEstado: confirmada\nRecordatorio: no",
+                "evt1", "Cita - Luis", desc,
                 aware(2026, 3, 24, 12, 30), aware(2026, 3, 24, 13, 0)
             )]
         }
@@ -169,7 +178,8 @@ class TestGetSlotsDisponibles:
         assert "10:00" in slots
 
     def test_cache_key_includes_duracion_and_presencia(self, cal_with_service):
-        """Calling get_slots_disponibles with different duracion_min creates separate cache keys (3-part key)."""
+        """Calling get_slots_disponibles with different duracion_min creates
+        separate cache keys (3-part key)."""
         import app.services.calendar as cal_module
         d = date(2026, 3, 24)
         cal_module.get_slots_disponibles(d, duracion_min=30, presencia_cliente_min=30)
@@ -182,7 +192,8 @@ class TestGetSlotsDisponibles:
         assert key_30 != key_120
 
     def test_slot_cache_keys_separate_per_duration_pair(self):
-        """_slot_cache_key returns distinct strings for different (duracion, presencia) pairs."""
+        """_slot_cache_key returns distinct strings for different
+        (duracion, presencia) pairs."""
         from app.services.calendar import _slot_cache_key
         d = date(2026, 3, 24)
         key_a = _slot_cache_key(d, 60, 180)
@@ -191,43 +202,57 @@ class TestGetSlotsDisponibles:
         assert isinstance(key_b, str)
         assert key_a != key_b
 
-    def test_get_slots_disponibles_mechas_no_offers_slots_under_3h_to_close(self, cal_with_service):
-        """Slots that would require the client to stay past closing are excluded (presencia_cliente_min=180)."""
+    def test_get_slots_disponibles_mechas_no_offers_slots_under_3h_to_close(
+        self, cal_with_service
+    ):
+        """Slots that would require the client to stay past closing are excluded
+        (presencia_cliente_min=180)."""
         cal, svc = cal_with_service
         d = date(2026, 3, 24)  # Tuesday: tarde 17:00-21:00
         svc.events.return_value.list.return_value.execute.return_value = {"items": []}
-        slots = cal.get_slots_disponibles(d, duracion_min=60, presencia_cliente_min=180)
-        # 17:00+180min=20:00 ≤ 21:00 ✓; 18:00+180min=21:00 ≤ 21:00 ✓; 18:30+180min=21:30 > 21:00 ✗
+        slots = cal.get_slots_disponibles(
+            d, duracion_min=60, presencia_cliente_min=180
+        )
+        # 17:00+180min=20:00 ≤ 21:00 ✓; 18:00+180min=21:00 ≤ 21:00 ✓;
+        # 18:30+180min=21:30 > 21:00 ✗
         assert "17:00" in slots
         assert "17:30" in slots
         assert "18:00" in slots
         assert "18:30" not in slots
 
-    def test_get_slots_disponibles_mechas_collision_uses_60min_window(self, cal_with_service):
+    def test_get_slots_disponibles_mechas_collision_uses_60min_window(
+        self, cal_with_service
+    ):
         """
         Collision detection uses duracion_min (60), not presencia_cliente_min (180).
         Event 18:30-19:00 falls inside the presencia window (slot_start + 180 = 20:00)
         but outside the duracion window (slot_start + 60 = 18:00) for 17:00 and 17:30.
-        If collision used presencia=180, all 3 slots would be blocked (event lies inside [17:00, 20:00)).
-        Since 17:00 and 17:30 are free, collision must be using duracion=60.
+        If collision used presencia=180, all 3 slots would be blocked (event lies
+        inside [17:00, 20:00)). Since 17:00 and 17:30 are free, collision must be
+        using duracion=60.
         """
         cal, svc = cal_with_service
         d = date(2026, 3, 24)  # Tuesday tarde 17:00-21:00
+        desc = (
+            "Nombre: Luis\nTelefono: 34600000002\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
-                "evt1", "Cita - Luis",
-                "Nombre: Luis\nTelefono: 34600000002\nEstado: confirmada\nRecordatorio: no",
+                "evt1", "Cita - Luis", desc,
                 aware(2026, 3, 24, 18, 30), aware(2026, 3, 24, 19, 0)
             )]
         }
-        slots = cal.get_slots_disponibles(d, duracion_min=60, presencia_cliente_min=180)
+        slots = cal.get_slots_disponibles(
+            d, duracion_min=60, presencia_cliente_min=180
+        )
         # 17:00+60=18:00 < 18:31 (event start with +1min tolerance) → free.
-        # If collision used presencia=180: 17:00+180=20:00 would overlap event → blocked.
+        # If collision used presencia=180: 17:00+180=20:00 would overlap → blocked.
         # The fact that 17:00 is free proves collision uses duracion=60, not presencia.
         assert "17:00" in slots
         # 17:30+60=18:30 < 18:31 (1-min tolerance gap) → free. Same load-bearing logic.
         assert "17:30" in slots
-        # 18:00+60=19:00 → window 18:00-19:00 overlaps event 18:30-19:00 → blocked by collision.
+        # 18:00+60=19:00 → window 18:00-19:00 overlaps event 18:30-19:00 → blocked.
         assert "18:00" not in slots
 
 
@@ -236,19 +261,30 @@ class TestGetSlotsDisponibles:
 class TestCrearCita:
     def test_creates_event_and_returns_id(self, cal_with_service):
         cal, svc = cal_with_service
-        event_id = cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["corte"])
+        event_id = cal.crear_cita(
+            date(2026, 3, 23), "10:00", "Ana", "34600000001",
+            servicio=SERVICIOS["corte"],
+        )
         assert event_id == "new_evt"
         svc.events.return_value.insert.return_value.execute.assert_called_once()
 
     def test_api_error_returns_none(self, cal_with_service):
         cal, svc = cal_with_service
-        svc.events.return_value.insert.return_value.execute.side_effect = Exception("API error")
-        result = cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["corte"])
+        svc.events.return_value.insert.return_value.execute.side_effect = Exception(
+            "API error"
+        )
+        result = cal.crear_cita(
+            date(2026, 3, 23), "10:00", "Ana", "34600000001",
+            servicio=SERVICIOS["corte"],
+        )
         assert result is None
 
     def test_description_format(self, cal_with_service):
         cal, svc = cal_with_service
-        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana García", "34600000001", servicio=SERVICIOS["corte"])
+        cal.crear_cita(
+            date(2026, 3, 23), "10:00", "Ana García", "34600000001",
+            servicio=SERVICIOS["corte"],
+        )
         body = svc.events.return_value.insert.call_args[1]["body"]
         assert "Nombre: Ana García" in body["description"]
         assert "Telefono: 34600000001" in body["description"]
@@ -256,13 +292,19 @@ class TestCrearCita:
 
     def test_crear_cita_title_format(self, cal_with_service):
         cal, svc = cal_with_service
-        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["corte"])
+        cal.crear_cita(
+            date(2026, 3, 23), "10:00", "Ana", "34600000001",
+            servicio=SERVICIOS["corte"],
+        )
         body = svc.events.return_value.insert.call_args[1]["body"]
         assert body["summary"] == "Corte de pelo - Ana"
 
     def test_crear_cita_duration_matches_servicio(self, cal_with_service):
         cal, svc = cal_with_service
-        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["mechas"])
+        cal.crear_cita(
+            date(2026, 3, 23), "10:00", "Ana", "34600000001",
+            servicio=SERVICIOS["mechas"],
+        )
         body = svc.events.return_value.insert.call_args[1]["body"]
         from datetime import datetime
         start = datetime.fromisoformat(body["start"]["dateTime"])
@@ -271,7 +313,10 @@ class TestCrearCita:
 
     def test_crear_cita_description_contains_servicio_line(self, cal_with_service):
         cal, svc = cal_with_service
-        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["mechas"])
+        cal.crear_cita(
+            date(2026, 3, 23), "10:00", "Ana", "34600000001",
+            servicio=SERVICIOS["mechas"],
+        )
         body = svc.events.return_value.insert.call_args[1]["body"]
         assert "Servicio: mechas" in body["description"]
 
@@ -302,7 +347,9 @@ class TestReservarCita:
 
     def test_slot_taken(self, cal_with_service):
         cal, svc = cal_with_service
-        with patch("app.services.calendar.service.slot_sigue_libre", return_value=False):
+        with patch(
+            "app.services.calendar.service.slot_sigue_libre", return_value=False
+        ):
             event_id, reason = cal.reservar_cita(
                 date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )
@@ -311,8 +358,9 @@ class TestReservarCita:
 
     def test_calendar_api_error(self, cal_with_service):
         cal, svc = cal_with_service
-        with patch("app.services.calendar.service.slot_sigue_libre", return_value=True), \
-             patch("app.services.calendar.service.crear_cita", return_value=None):
+        with patch(
+            "app.services.calendar.service.slot_sigue_libre", return_value=True
+        ), patch("app.services.calendar.service.crear_cita", return_value=None):
             event_id, reason = cal.reservar_cita(
                 date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )
@@ -346,18 +394,21 @@ class TestReservarCita:
         results = []
 
         def worker():
-            with patch.object(cal_module, "slot_sigue_libre", side_effect=fake_slot_libre), \
-                 patch.object(cal_module, "crear_cita", side_effect=fake_crear):
-                result = cal_module.reservar_cita(d, hora, "Test", "34600000001", SERVICIOS["corte"])
+            with patch.object(
+                cal_module, "slot_sigue_libre", side_effect=fake_slot_libre
+            ), patch.object(cal_module, "crear_cita", side_effect=fake_crear):
+                result = cal_module.reservar_cita(
+                    d, hora, "Test", "34600000001", SERVICIOS["corte"]
+                )
                 results.append(result)
 
         t1 = threading.Thread(target=worker)
         t2 = threading.Thread(target=worker)
-        t1.start(); t2.start()
-        t1.join(); t2.join()
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
-        successes = [r for r in results if r[0] is not None]
-        failures  = [r for r in results if r[1] == "slot_taken"]
         # At most 1 success; the slot lock may or may not serialize
         # depending on timing, but combined there should be 2 results total
         assert len(results) == 2
@@ -379,7 +430,9 @@ class TestCancelarCita:
         svc.events.return_value.get.return_value.execute.return_value = {
             'start': {'dateTime': '2025-05-05T10:00:00+02:00'}
         }
-        svc.events.return_value.delete.return_value.execute.side_effect = Exception("err")
+        svc.events.return_value.delete.return_value.execute.side_effect = Exception(
+            "err"
+        )
         assert cal.cancelar_cita("evt1") is False
 
 
@@ -449,8 +502,10 @@ class TestGetEventosManualesSinConfirmar:
         now = datetime.now(TZ)
         desc = "Nombre: Luis\nEstado: pendiente"  # no Telefono
         svc.events.return_value.list.return_value.execute.return_value = {
-            "items": [make_gc_event("evt1", "Cita", desc,
-                                   now + timedelta(days=1), now + timedelta(days=1, minutes=30))]
+            "items": [make_gc_event(
+                "evt1", "Cita", desc,
+                now + timedelta(days=1), now + timedelta(days=1, minutes=30),
+            )]
         }
         assert cal.get_eventos_manuales_sin_confirmar() == []
 
@@ -562,7 +617,10 @@ class TestMarcarManualConfirmado:
         cal, svc = cal_with_service
         svc.events.return_value.get.return_value.execute.return_value = {
             "id": "evt1",
-            "description": "Nombre: Luis\nTelefono: 34600000002\nEstado: pendiente\nRecordatorio: no",
+            "description": (
+                "Nombre: Luis\nTelefono: 34600000002\n"
+                "Estado: pendiente\nRecordatorio: no"
+            ),
         }
         result = cal.marcar_manual_confirmado("evt1")
         assert result is True
@@ -572,7 +630,9 @@ class TestMarcarManualConfirmado:
 
     def test_api_error_returns_false(self, cal_with_service):
         cal, svc = cal_with_service
-        svc.events.return_value.get.return_value.execute.side_effect = Exception("API error")
+        svc.events.return_value.get.return_value.execute.side_effect = Exception(
+            "API error"
+        )
         assert cal.marcar_manual_confirmado("evt1") is False
 
 
@@ -582,7 +642,10 @@ class TestGetCitasFuturas:
     def test_returns_future_citas_for_phone(self, cal_with_service):
         cal, svc = cal_with_service
         now = datetime.now(TZ)
-        desc = "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no"
+        desc = (
+            "Nombre: Ana\nTelefono: 34600000001\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
                 "evt1", "Corte de pelo - Ana", desc,
@@ -596,7 +659,10 @@ class TestGetCitasFuturas:
     def test_ignores_other_phones(self, cal_with_service):
         cal, svc = cal_with_service
         now = datetime.now(TZ)
-        desc = "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no"
+        desc = (
+            "Nombre: Ana\nTelefono: 34600000001\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
                 "evt1", "Corte de pelo - Ana", desc,
@@ -620,7 +686,9 @@ class TestGetCitasFuturas:
 
     def test_api_error_returns_empty_list(self, cal_with_service):
         cal, svc = cal_with_service
-        svc.events.return_value.list.return_value.execute.side_effect = Exception("API error")
+        svc.events.return_value.list.return_value.execute.side_effect = Exception(
+            "API error"
+        )
         result = cal.get_citas_futuras("34600000001")
         assert result == []
 
@@ -670,10 +738,18 @@ class TestGetEventsInRange:
         start = date(2026, 5, 10)
         end = date(2026, 5, 15)
 
-        evt1 = make_timed_gc_event("e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30))
-        evt2 = make_timed_gc_event("e2", "B", "", aware(2026, 5, 12, 11, 0), aware(2026, 5, 12, 11, 30))
-        evt3 = make_timed_gc_event("e3", "C", "", aware(2026, 5, 14, 15, 0), aware(2026, 5, 14, 15, 30))
-        svc.events.return_value.list.return_value.execute.return_value = {"items": [evt1, evt2, evt3]}
+        evt1 = make_timed_gc_event(
+            "e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30)
+        )
+        evt2 = make_timed_gc_event(
+            "e2", "B", "", aware(2026, 5, 12, 11, 0), aware(2026, 5, 12, 11, 30)
+        )
+        evt3 = make_timed_gc_event(
+            "e3", "C", "", aware(2026, 5, 14, 15, 0), aware(2026, 5, 14, 15, 30)
+        )
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [evt1, evt2, evt3]
+        }
 
         result = cal._get_events_in_range(svc, start, end)
 
@@ -692,8 +768,12 @@ class TestGetEventsInRange:
         start = date(2026, 5, 10)
         end = date(2026, 5, 15)
 
-        all_day = make_range_all_day_event("cfg1", "[CFG] CERRADO", "2026-05-10", "2026-05-13")
-        svc.events.return_value.list.return_value.execute.return_value = {"items": [all_day]}
+        all_day = make_range_all_day_event(
+            "cfg1", "[CFG] CERRADO", "2026-05-10", "2026-05-13"
+        )
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [all_day]
+        }
 
         result = cal._get_events_in_range(svc, start, end)
 
@@ -703,13 +783,18 @@ class TestGetEventsInRange:
         assert result[date(2026, 5, 13)] == []  # end is exclusive
 
     def test_get_events_in_range_pagination(self, cal_with_service):
-        """First execute returns nextPageToken, second returns more events — both batches concatenated."""
+        """First execute returns nextPageToken, second returns more events — both
+        batches concatenated."""
         cal, svc = cal_with_service
         start = date(2026, 5, 10)
         end = date(2026, 5, 15)
 
-        evt1 = make_timed_gc_event("e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30))
-        evt2 = make_timed_gc_event("e2", "B", "", aware(2026, 5, 11, 10, 0), aware(2026, 5, 11, 10, 30))
+        evt1 = make_timed_gc_event(
+            "e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30)
+        )
+        evt2 = make_timed_gc_event(
+            "e2", "B", "", aware(2026, 5, 11, 10, 0), aware(2026, 5, 11, 10, 30)
+        )
 
         svc.events.return_value.list.return_value.execute.side_effect = [
             {"items": [evt1], "nextPageToken": "token_page2"},
@@ -730,7 +815,9 @@ class TestGetEventsInRange:
 
         # Every page returns a token — should stop after 5
         always_token_page = {"items": [], "nextPageToken": "keep_going"}
-        svc.events.return_value.list.return_value.execute.side_effect = [always_token_page] * 10
+        svc.events.return_value.list.return_value.execute.side_effect = (
+            [always_token_page] * 10
+        )
 
         result = cal._get_events_in_range(svc, start, end)
 
@@ -738,7 +825,8 @@ class TestGetEventsInRange:
         assert isinstance(result, dict)
 
     def test_events_list_called_with_fields_parameter(self, cal_with_service):
-        """_get_events_in_range passes fields= containing required field names and nextPageToken."""
+        """_get_events_in_range passes fields= containing required field names
+        and nextPageToken."""
         cal, svc = cal_with_service
         svc.events.return_value.list.return_value.execute.return_value = {"items": []}
 
@@ -757,8 +845,12 @@ class TestGetEventsInRange:
         start = date(2026, 5, 10)
         end = date(2026, 5, 15)
 
-        evt1 = make_timed_gc_event("e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30))
-        evt2 = make_timed_gc_event("e2", "B", "", aware(2026, 5, 11, 10, 0), aware(2026, 5, 11, 10, 30))
+        evt1 = make_timed_gc_event(
+            "e1", "A", "", aware(2026, 5, 10, 10, 0), aware(2026, 5, 10, 10, 30)
+        )
+        evt2 = make_timed_gc_event(
+            "e2", "B", "", aware(2026, 5, 11, 10, 0), aware(2026, 5, 11, 10, 30)
+        )
 
         svc.events.return_value.list.return_value.execute.side_effect = [
             {"items": [evt1], "nextPageToken": "token_page2"},
@@ -783,7 +875,8 @@ class TestGetEventsInRange:
 
 class TestComputeSlots:
     def test_compute_slots_pure_function_no_io(self):
-        """Call directly with pre-built events; result matches _get_slots_disponibles_uncached logic."""
+        """Call directly with pre-built events; result matches
+        _get_slots_disponibles_uncached logic."""
         import app.services.calendar as cal_module
         d = date(2026, 3, 24)  # Tuesday with schedule 10:00-14:00 and 17:00-21:00
 
@@ -793,7 +886,9 @@ class TestComputeSlots:
             'start': aware(2026, 3, 24, 10, 0), 'end': aware(2026, 3, 24, 10, 30),
             'all_day': False,
         }
-        result = cal_module._compute_slots(d, [blocking], duracion_min=30, presencia_cliente_min=30)
+        result = cal_module._compute_slots(
+            d, [blocking], duracion_min=30, presencia_cliente_min=30
+        )
 
         assert "10:00" not in result
         assert "10:30" in result
@@ -825,7 +920,9 @@ class TestGetSlotsDisponiblesRange:
         end = date(2026, 5, 25)     # Sunday (14 calendar days later)
 
         cal.get_slots_disponibles_range(start, end)
-        call_count_after_range = svc.events.return_value.list.return_value.execute.call_count
+        call_count_after_range = (
+            svc.events.return_value.list.return_value.execute.call_count
+        )
 
         # Now fetch each day individually — should all be cache hits → no new calls
         current = start
@@ -833,10 +930,16 @@ class TestGetSlotsDisponiblesRange:
             cal.get_slots_disponibles(current)
             current += timedelta(days=1)
 
-        assert svc.events.return_value.list.return_value.execute.call_count == call_count_after_range
+        assert (
+            svc.events.return_value.list.return_value.execute.call_count
+            == call_count_after_range
+        )
 
-    def test_get_slots_disponibles_range_filters_today_past_slots(self, cal_with_service):
-        """Slots <= 12:30 absent from today's return value; cached entry is unfiltered."""
+    def test_get_slots_disponibles_range_filters_today_past_slots(
+        self, cal_with_service
+    ):
+        """Slots <= 12:30 absent from today's return value;
+        cached entry is unfiltered."""
         import app.services.calendar as cal_module
         cal, svc = cal_with_service
         svc.events.return_value.list.return_value.execute.return_value = {"items": []}
@@ -864,10 +967,14 @@ class TestGetSlotsDisponiblesRange:
         cached_slots, _ = cal_module._slot_cache[cache_key]
         assert "10:00" in cached_slots
 
-    def test_get_slots_disponibles_range_handles_calendar_failure(self, cal_with_service):
+    def test_get_slots_disponibles_range_handles_calendar_failure(
+        self, cal_with_service
+    ):
         """Exception raised by Calendar API → range returns {}."""
         cal, svc = cal_with_service
-        svc.events.return_value.list.return_value.execute.side_effect = Exception("API down")
+        svc.events.return_value.list.return_value.execute.side_effect = Exception(
+            "API down"
+        )
 
         result = cal.get_slots_disponibles_range(date(2026, 5, 10), date(2026, 5, 15))
         assert result == {}
@@ -878,13 +985,19 @@ class TestGetSlotsDisponiblesRange:
         cal, svc = cal_with_service
 
         target = date(2026, 3, 24)  # Tuesday (would normally have slots)
-        cfg_event = make_range_all_day_event("cfg1", "[CFG] CERRADO", "2026-03-24", "2026-03-25")
-        svc.events.return_value.list.return_value.execute.return_value = {"items": [cfg_event]}
+        cfg_event = make_range_all_day_event(
+            "cfg1", "[CFG] CERRADO", "2026-03-24", "2026-03-25"
+        )
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [cfg_event]
+        }
 
         result = cal_module.get_slots_disponibles_range(target, target)
         assert result[target] == []
 
-    def test_get_slots_disponibles_range_with_cfg_vacaciones_multi_day(self, cal_with_service):
+    def test_get_slots_disponibles_range_with_cfg_vacaciones_multi_day(
+        self, cal_with_service
+    ):
         """[CFG] VACACIONES all-day spanning 3 days → those 3 days return []."""
         import app.services.calendar as cal_module
         cal, svc = cal_with_service
@@ -893,8 +1006,12 @@ class TestGetSlotsDisponiblesRange:
         end = date(2026, 3, 26)    # Thursday
 
         # Vacaciones covers all 3 days (end date exclusive = 2026-03-27)
-        cfg_event = make_range_all_day_event("cfg1", "[CFG] VACACIONES", "2026-03-24", "2026-03-27")
-        svc.events.return_value.list.return_value.execute.return_value = {"items": [cfg_event]}
+        cfg_event = make_range_all_day_event(
+            "cfg1", "[CFG] VACACIONES", "2026-03-24", "2026-03-27"
+        )
+        svc.events.return_value.list.return_value.execute.return_value = {
+            "items": [cfg_event]
+        }
 
         result = cal_module.get_slots_disponibles_range(start, end)
         assert result[date(2026, 3, 24)] == []
@@ -908,7 +1025,10 @@ class TestCitasCacheInfrastructure:
 
     def _make_cita_event(self, svc, telefono="34600000001"):
         now = datetime.now(TZ)
-        desc = f"Nombre: Ana\nTelefono: {telefono}\nEstado: confirmada\nRecordatorio: no"
+        desc = (
+            f"Nombre: Ana\nTelefono: {telefono}\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
                 "evt1", "Corte de pelo - Ana", desc,
@@ -917,7 +1037,6 @@ class TestCitasCacheInfrastructure:
         }
 
     def test_get_citas_futuras_caches_result(self, cal_with_service):
-        import app.services.calendar as cal_module
         cal, svc = cal_with_service
         self._make_cita_event(svc)
 
@@ -962,7 +1081,6 @@ class TestCitasCacheInfrastructure:
         assert "34600000002" in cal_module._citas_cache
 
     def test_get_citas_futuras_returns_defensive_copy(self, cal_with_service):
-        import app.services.calendar as cal_module
         cal, svc = cal_with_service
         self._make_cita_event(svc)
 
@@ -976,7 +1094,9 @@ class TestCitasCacheInfrastructure:
     def test_get_citas_futuras_does_not_cache_on_exception(self, cal_with_service):
         import app.services.calendar as cal_module
         cal, svc = cal_with_service
-        svc.events.return_value.list.return_value.execute.side_effect = Exception("API down")
+        svc.events.return_value.list.return_value.execute.side_effect = Exception(
+            "API down"
+        )
 
         result = cal.get_citas_futuras("34600000001")
 
@@ -985,7 +1105,6 @@ class TestCitasCacheInfrastructure:
 
     def test_crear_cita_invalidates_citas_cache_for_telefono(self, cal_with_service):
         import app.services.calendar as cal_module
-        import time
         cal, svc = cal_with_service
         self._make_cita_event(svc)
 
@@ -994,10 +1113,15 @@ class TestCitasCacheInfrastructure:
         assert "34600000001" in cal_module._citas_cache
 
         # crear_cita must evict the entry
-        cal.crear_cita(date(2026, 3, 23), "10:00", "Ana", "34600000001", servicio=SERVICIOS["corte"])
+        cal.crear_cita(
+            date(2026, 3, 23), "10:00", "Ana", "34600000001",
+            servicio=SERVICIOS["corte"],
+        )
         assert "34600000001" not in cal_module._citas_cache
 
-    def test_cancelar_cita_invalidates_citas_cache_extracted_from_event(self, cal_with_service):
+    def test_cancelar_cita_invalidates_citas_cache_extracted_from_event(
+        self, cal_with_service
+    ):
         import app.services.calendar as cal_module
         cal, svc = cal_with_service
 
@@ -1007,7 +1131,10 @@ class TestCitasCacheInfrastructure:
         # Event returned by events().get() contains the phone
         svc.events.return_value.get.return_value.execute.return_value = {
             "id": "evt1",
-            "description": "Nombre: Ana\nTelefono: 34600000001\nEstado: confirmada\nRecordatorio: no",
+            "description": (
+                "Nombre: Ana\nTelefono: 34600000001\n"
+                "Estado: confirmada\nRecordatorio: no"
+            ),
             "start": {"dateTime": "2026-03-23T10:00:00+01:00"},
         }
         cal.cancelar_cita("evt1")
@@ -1022,7 +1149,10 @@ class TestCitasCacheInfrastructure:
 
         svc.events.return_value.get.return_value.execute.return_value = {
             "id": "evt1",
-            "description": "Nombre: Ana\nTelefono: 34600000001\nEstado: pendiente\nRecordatorio: no",
+            "description": (
+                "Nombre: Ana\nTelefono: 34600000001\n"
+                "Estado: pendiente\nRecordatorio: no"
+            ),
         }
         cal.confirmar_cita("evt1")
         assert "34600000001" not in cal_module._citas_cache
@@ -1036,7 +1166,10 @@ class TestCitasCacheInfrastructure:
 
         svc.events.return_value.get.return_value.execute.return_value = {
             "id": "evt2",
-            "description": "Nombre: Luis\nTelefono: 34600000002\nEstado: pendiente\nRecordatorio: no",
+            "description": (
+                "Nombre: Luis\nTelefono: 34600000002\n"
+                "Estado: pendiente\nRecordatorio: no"
+            ),
         }
         cal.marcar_manual_confirmado("evt2")
         assert "34600000002" not in cal_module._citas_cache
@@ -1081,7 +1214,10 @@ class TestCitasCacheInfrastructure:
         # cancelar_cita fetches the event, parses the phone, then invalidates
         svc.events.return_value.get.return_value.execute.return_value = {
             "id": "evt1",
-            "description": f"Nombre: Ana\nTelefono: {telefono}\nEstado: confirmada\nRecordatorio: no",
+            "description": (
+                f"Nombre: Ana\nTelefono: {telefono}\n"
+                "Estado: confirmada\nRecordatorio: no"
+            ),
             "start": {"dateTime": "2026-03-23T10:00:00+01:00"},
         }
         cal.cancelar_cita("evt1")
@@ -1095,9 +1231,13 @@ class TestCitasCacheInfrastructure:
 class TestGetEventById:
 
     def _make_event_response(self, svc, telefono="34600000001", event_id="evt1",
-                              summary="Corte de pelo - Ana", all_day=False, description=None):
+                              summary="Corte de pelo - Ana", all_day=False,
+                              description=None):
         if description is None:
-            description = f"Nombre: Ana\nTelefono: {telefono}\nEstado: confirmada\nRecordatorio: no"
+            description = (
+                f"Nombre: Ana\nTelefono: {telefono}\n"
+                "Estado: confirmada\nRecordatorio: no"
+            )
         if all_day:
             svc.events.return_value.get.return_value.execute.return_value = {
                 "id": event_id,
@@ -1132,15 +1272,21 @@ class TestGetEventById:
         result = cal.get_event_by_id("evt1", "34600000999")
         assert result is None
 
-    def test_get_event_by_id_returns_none_when_event_not_found(self, cal_with_service):
+    def test_get_event_by_id_returns_none_when_event_not_found(
+        self, cal_with_service
+    ):
         cal, svc = cal_with_service
-        svc.events.return_value.get.return_value.execute.side_effect = Exception("Not found")
+        svc.events.return_value.get.return_value.execute.side_effect = Exception(
+            "Not found"
+        )
         result = cal.get_event_by_id("evt_missing", "34600000001")
         assert result is None
 
     def test_get_event_by_id_returns_none_for_cfg_event(self, cal_with_service):
         cal, svc = cal_with_service
-        self._make_event_response(svc, summary="[CFG] CERRADO", telefono="34600000001")
+        self._make_event_response(
+            svc, summary="[CFG] CERRADO", telefono="34600000001"
+        )
         result = cal.get_event_by_id("evt1", "34600000001")
         assert result is None
 
@@ -1150,7 +1296,9 @@ class TestGetEventById:
         result = cal.get_event_by_id("evt1", "34600000001")
         assert result is None
 
-    def test_get_event_by_id_returns_none_when_no_phone_in_description(self, cal_with_service):
+    def test_get_event_by_id_returns_none_when_no_phone_in_description(
+        self, cal_with_service
+    ):
         cal, svc = cal_with_service
         self._make_event_response(
             svc,
@@ -1179,15 +1327,18 @@ class TestComputeSlotsEventHorario:
         import app.services.calendar as cal_module
         d = date(2099, 12, 25)  # Sunday — no HORARIO_BASE entry
         event_horario = [("10:00", "12:00")]
-        result = cal_module._compute_slots(d, [], duracion_min=30, presencia_cliente_min=30,
-                                           event_horario=event_horario)
+        result = cal_module._compute_slots(
+            d, [], duracion_min=30, presencia_cliente_min=30,
+            event_horario=event_horario,
+        )
         assert "10:00" in result
         assert "10:30" in result
         assert "11:30" in result
         assert "12:00" not in result
 
     def test_special_schedule_takes_priority_over_event_horario(self):
-        """[CFG] HORARIO overrides event_horario (highest priority for open schedules)."""
+        """[CFG] HORARIO overrides event_horario (highest priority for open
+        schedules)."""
         import app.services.calendar as cal_module
         d = date(2099, 12, 25)
         cfg_ev = {
@@ -1196,9 +1347,12 @@ class TestComputeSlotsEventHorario:
             'all_day': True,
         }
         event_horario = [("10:00", "14:00")]
-        result = cal_module._compute_slots(d, [cfg_ev], duracion_min=30, presencia_cliente_min=30,
-                                           event_horario=event_horario)
-        # special_schedule 09:00-10:00: only 09:00 slot (09:00+30=09:30≤10:00 ✓; 09:30+30=10:00≤10:00 ✓ → 09:00 and 09:30)
+        result = cal_module._compute_slots(
+            d, [cfg_ev], duracion_min=30, presencia_cliente_min=30,
+            event_horario=event_horario,
+        )
+        # special_schedule 09:00-10:00: only 09:00 slot
+        # (09:00+30=09:30≤10:00 ✓; 09:30+30=10:00≤10:00 ✓ → 09:00 and 09:30)
         assert "09:00" in result
         assert "10:30" not in result  # event_horario's range must not appear
 
@@ -1216,13 +1370,18 @@ class TestComputeSlotsEventHorario:
         assert result == []
 
     def test_none_event_horario_falls_back_to_horario_base(self):
-        """event_horario=None (default) → normal HORARIO_BASE fallback path unchanged."""
+        """event_horario=None (default) → normal HORARIO_BASE fallback path
+        unchanged."""
         import app.services.calendar as cal_module
         d = date(2026, 3, 24)  # Tuesday — has HORARIO_BASE slots
-        result = cal_module._compute_slots(d, [], duracion_min=30, presencia_cliente_min=30,
-                                           event_horario=None)
+        result = cal_module._compute_slots(
+            d, [], duracion_min=30, presencia_cliente_min=30,
+            event_horario=None,
+        )
         # Should return the same slots as without event_horario
-        expected = cal_module._compute_slots(d, [], duracion_min=30, presencia_cliente_min=30)
+        expected = cal_module._compute_slots(
+            d, [], duracion_min=30, presencia_cliente_min=30
+        )
         assert result == expected
 
 

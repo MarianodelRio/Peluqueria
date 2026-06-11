@@ -105,7 +105,11 @@ def health():
     cal_ok = check_calendar_health()
     status = "ok" if cal_ok else "degraded"
     return JSONResponse(
-        {"status": status, "calendar": "ok" if cal_ok else "error", "metrics": get_metrics()},
+        {
+            "status": status,
+            "calendar": "ok" if cal_ok else "error",
+            "metrics": get_metrics(),
+        },
         status_code=200 if cal_ok else 503,
     )
 

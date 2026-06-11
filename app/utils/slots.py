@@ -16,7 +16,11 @@ TZ = pytz.timezone(TIMEZONE)
 OVERLAP_TOLERANCE_SECONDS = 60  # ±1 minute tolerance
 
 
-def generate_slots(start_str: str, end_str: str, presencia_cliente_min: int = 30, step_min: int = CITA_DURACION_MIN) -> List[str]:
+def generate_slots(
+    start_str: str, end_str: str,
+    presencia_cliente_min: int = 30,
+    step_min: int = CITA_DURACION_MIN,
+) -> List[str]:
     """
     Generate time slots of presencia_cliente_min length between start and end.
     start_str, end_str: 'HH:MM' format.
@@ -44,7 +48,10 @@ def get_base_slots_for_day(d: date, presencia_cliente_min: int = 30) -> List[str
         return []
     slots = []
     for start_str, end_str in HORARIO_BASE[weekday]:
-        slots.extend(generate_slots(start_str, end_str, presencia_cliente_min, step_min=CITA_DURACION_MIN))
+        slots.extend(generate_slots(
+            start_str, end_str, presencia_cliente_min,
+            step_min=CITA_DURACION_MIN,
+        ))
     return slots
 
 
@@ -125,7 +132,9 @@ def get_event_days() -> List[date]:
         try:
             d = date.fromisoformat(str(iso_key))
         except ValueError:
-            logger.warning(f"[SLOTS] get_event_days: invalid date key '{iso_key}' skipped")
+            logger.warning(
+                f"[SLOTS] get_event_days: invalid date key '{iso_key}' skipped"
+            )
             continue
         if d >= today:
             days.append(d)
@@ -146,5 +155,8 @@ def get_event_slots_for_day(d: date, presencia_cliente_min: int = 30) -> List[st
     slots: List[str] = []
     for rng in ranges:
         start_str, end_str = rng[0], rng[1]
-        slots.extend(generate_slots(start_str, end_str, presencia_cliente_min, step_min=CITA_DURACION_MIN))
+        slots.extend(generate_slots(
+            start_str, end_str, presencia_cliente_min,
+            step_min=CITA_DURACION_MIN,
+        ))
     return slots

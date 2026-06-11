@@ -27,7 +27,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Logging ────────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+_LOG_FMT = "%(asctime)s [%(levelname)s] %(message)s"
+logging.basicConfig(level=logging.INFO, format=_LOG_FMT)
 logger = logging.getLogger(__name__)
 
 # ── Constants with env overrides ───────────────────────────────────────────
@@ -47,7 +48,12 @@ HEALTH_TIMEOUT_SEC = 5
 
 def _default_state() -> dict:
     return {
-        "last_alerts": {k: 0 for k in ["bot_down", "bot_degraded", "ram_critical", "disk_critical", "errors_spike"]},
+        "last_alerts": {
+            k: 0 for k in [
+                "bot_down", "bot_degraded", "ram_critical",
+                "disk_critical", "errors_spike",
+            ]
+        },
         "prev_metrics": {"calendar_errors": 0, "whatsapp_errors": 0},
     }
 
@@ -60,7 +66,8 @@ def load_state() -> dict:
         # Ensure all expected keys exist (forward-compatibility)
         default = _default_state()
         for key in default["last_alerts"]:
-            data.setdefault("last_alerts", {})[key] = data.get("last_alerts", {}).get(key, 0)
+            alerts = data.setdefault("last_alerts", {})
+            alerts[key] = data.get("last_alerts", {}).get(key, 0)
         data.setdefault("prev_metrics", default["prev_metrics"])
         return data
     except FileNotFoundError:
@@ -92,13 +99,15 @@ def is_in_cooldown(state: dict, key: str, cooldown_sec: int) -> bool:
 
 # ── WhatsApp alert ─────────────────────────────────────────────────────────
 
-def send_alert(phone_number_id: str, token: str, admin_phone: str, label: str, detail: str) -> bool:
+def send_alert(
+        phone_number_id: str, token: str, admin_phone: str,
+        label: str, detail: str) -> bool:
     """
     Send a WhatsApp template alert (alerta_sistema) to admin_phone.
     Returns True on HTTP 200/201. Never raises — catches all exceptions.
     """
     timestamp = datetime.now().strftime("%d/%m/%Y %H:%M")
-    url = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
+    url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
     payload = {
         "messaging_product": "whatsapp",
         "to": admin_phone,
@@ -145,16 +154,25 @@ def run_checks() -> None:
 
     if not admin_phone:
         # Fall back to config.yaml
-        config_yaml_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+        config_yaml_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "config.yaml"
+        )
         try:
             with open(config_yaml_path, "r", encoding="utf-8") as fh:
                 cfg = yaml.safe_load(fh)
             admin_phone = (cfg or {}).get("negocio", {}).get("admin_phone", "") or ""
         except Exception as exc:
-            logger.warning("[WATCHDOG] Could not read config.yaml for admin_phone: %s", exc)
+            logger.warning(
+                "[WATCHDOG] Could not read config.yaml"
+                " for admin_phone: %s",
+                exc,
+            )
 
     if not admin_phone:
-        logger.warning("[WATCHDOG] ADMIN_PHONE not set — checks will run but no alerts will be sent")
+        logger.warning(
+            "[WATCHDOG] ADMIN_PHONE not set"
+            " — checks will run but no alerts will be sent"
+        )
 
     # 2. Load state
     state = load_state()
@@ -172,9 +190,12 @@ def run_checks() -> None:
         except Exception:
             health = {}
         if health.get("calendar") == "error":
-            alerts_fired.append(
-                ("bot_degraded", COOLDOWN_STANDARD_SEC, "CALENDAR CAIDO", "calendar: error en /health")
-            )
+            alerts_fired.append((
+                "bot_degraded",
+                COOLDOWN_STANDARD_SEC,
+                "CALENDAR CAIDO",
+                "calendar: error en /health",
+            ))
         else:
             resp.raise_for_status()
     except httpx.HTTPError as exc:
@@ -245,7 +266,11 @@ def run_checks() -> None:
             state["last_alerts"][key] = time.time()
             logger.info("[WATCHDOG] Alerta enviada: %s", key)
         else:
-            logger.error("[WATCHDOG] Error enviando alerta %s — cooldown no marcado", key)
+            logger.error(
+                "[WATCHDOG] Error enviando alerta %s"
+                " — cooldown no marcado",
+                key,
+            )
 
     # 5. All-OK message
     if not alerts_fired:

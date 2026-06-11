@@ -7,18 +7,18 @@ All datetimes are timezone-aware (Europe/Madrid).
 """
 import logging
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import List
 
 import pytz
 
 from app.config import TIMEZONE, EVENTO_DIAS
 from app.utils import metrics
 
-from .caches import slot_cache, citas_cache
+from .caches import slot_cache
 from .locks import slot_locks
 from .engine import slot_cache_key, compute_slots
 from .repository import events_repo
-from .mutations import crear_cita
+from .mutations import crear_cita, cancelar_cita
 
 logger = logging.getLogger(__name__)
 TZ = pytz.timezone(TIMEZONE)
@@ -36,7 +36,8 @@ def _filter_past_hours_today(d: date, slots: List[str]) -> List[str]:
 
 
 def _invalidate_slot_cache(d: date) -> None:
-    """Remove all cache entries for a given date (all durations), including evt_* keys."""
+    """Remove all cache entries for a given date (all durations),
+    including evt_* keys."""
     date_str = d.isoformat()
     slot_cache.invalidate_matching(
         lambda k: k.startswith(date_str) or k.startswith(f"evt_{date_str}")
@@ -77,7 +78,10 @@ def get_slots_disponibles(
 
     try:
         events = events_repo.list_for_day(d)
-        result = compute_slots(d, events, duracion_min, presencia_cliente_min, event_horario=event_horario)
+        result = compute_slots(
+            d, events, duracion_min, presencia_cliente_min,
+            event_horario=event_horario,
+        )
     except Exception as e:
         logger.error(f"[CAL] Error fetching slots for {d}: {e}", exc_info=True)
         metrics.inc('calendar_errors')
@@ -141,7 +145,10 @@ def get_slots_disponibles_for_days(
 
         return result
     except Exception as e:
-        logger.error(f"[CAL] Error in get_slots_disponibles_for_days: {e}", exc_info=True)
+        logger.error(
+            f"[CAL] Error in get_slots_disponibles_for_days: {e}",
+            exc_info=True,
+        )
         metrics.inc('calendar_errors')
         return {}
 
@@ -166,7 +173,8 @@ def get_slots_disponibles_evento_range(
     duracion_min: int = 30,
     presencia_cliente_min: int = 30,
 ) -> dict:
-    """Compatibility wrapper — delegates to get_slots_disponibles_for_days with mode='evento'."""
+    """Compatibility wrapper — delegates to get_slots_disponibles_for_days
+    with mode='evento'."""
     return get_slots_disponibles_for_days(
         days, mode='evento',
         duracion_min=duracion_min, presencia_cliente_min=presencia_cliente_min,
@@ -215,7 +223,9 @@ def slot_sigue_libre(
 
 # ── Atomic booking ────────────────────────────────────────────────────────────
 
-def reservar_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict) -> tuple:
+def reservar_cita(
+    d: date, hora: str, nombre: str, telefono: str, servicio: dict,
+) -> tuple:
     """
     Atomic booking: acquire per-slot lock → re-validate → create.
     Prevents race conditions between concurrent booking attempts.
@@ -228,9 +238,46 @@ def reservar_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict
     lock = slot_locks.get(d, hora)
     presencia = servicio['presencia_cliente_min']
     with lock:
-        if not slot_sigue_libre(d, hora, duracion_min=servicio['duracion_min'], presencia_cliente_min=presencia):
+        if not slot_sigue_libre(
+            d, hora,
+            duracion_min=servicio['duracion_min'],
+            presencia_cliente_min=presencia,
+        ):
             return None, 'slot_taken'
         event_id = crear_cita(d, hora, nombre, telefono, servicio=servicio)
         if not event_id:
             return None, 'error'
         return event_id, None
+
+
+def mover_cita(
+    source_event_id: str, d: date, hora: str, nombre: str, telefono: str,
+    servicio: dict,
+) -> tuple:
+    """
+    Atomic move: acquire per-slot lock → re-validate → create new → delete old.
+
+    Returns:
+        (new_event_id, None)     — success
+        (None, 'slot_taken')     — slot no longer available
+        (None, 'error')          — Calendar API failure on create
+    """
+    lock = slot_locks.get(d, hora)
+    presencia = servicio['presencia_cliente_min']
+    with lock:
+        if not slot_sigue_libre(
+            d, hora,
+            duracion_min=servicio['duracion_min'],
+            presencia_cliente_min=presencia,
+        ):
+            return None, 'slot_taken'
+        new_event_id = crear_cita(d, hora, nombre, telefono, servicio=servicio)
+        if not new_event_id:
+            return None, 'error'
+
+    if not cancelar_cita(source_event_id):
+        logger.warning(
+            f"[CAL] mover_cita: failed to delete source event {source_event_id}"
+        )
+
+    return new_event_id, None

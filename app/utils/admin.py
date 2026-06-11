@@ -38,8 +38,16 @@ def build_status_report() -> str:
 
             sistema_lines = [
                 f"  CPU: {cpu:.1f}%",
-                f"  RAM: {mem.percent:.1f}% ({mem.used // (1024**2)} MB / {mem.total // (1024**2)} MB)",
-                f"  Disco: {disk.percent:.1f}% ({disk.used // (1024**3):.1f} GB / {disk.total // (1024**3):.1f} GB)",
+                (
+                    f"  RAM: {mem.percent:.1f}%"
+                    f" ({mem.used // (1024**2)} MB"
+                    f" / {mem.total // (1024**2)} MB)"
+                ),
+                (
+                    f"  Disco: {disk.percent:.1f}%"
+                    f" ({disk.used // (1024**3):.1f} GB"
+                    f" / {disk.total // (1024**3):.1f} GB)"
+                ),
                 f"  Uptime: {uptime_h}h {uptime_m}m",
             ]
         except Exception as ps_err:
@@ -49,7 +57,10 @@ def build_status_report() -> str:
         # --- Calendar health ---
         try:
             cal_ok = check_calendar_health()
-            cal_line = "  Calendar: OK" if cal_ok else "  Calendar: ERROR - no se pudo conectar"
+            if cal_ok:
+                cal_line = "  Calendar: OK"
+            else:
+                cal_line = "  Calendar: ERROR - no se pudo conectar"
         except Exception as cal_err:
             logger.error("[ADMIN] Calendar health error: %s", cal_err)
             cal_line = f"  Calendar: ERROR - {cal_err}"

@@ -23,7 +23,11 @@ import threading
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 
-from app.config import MAX_CONCURRENT_HANDLERS, WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN
+from app.config import (
+    MAX_CONCURRENT_HANDLERS,
+    WHATSAPP_APP_SECRET,
+    WHATSAPP_VERIFY_TOKEN,
+)
 from app.handlers.conversation import handle_message
 from app.utils import metrics
 from app.utils.dedup import MessageDeduplicator
@@ -46,7 +50,10 @@ _deduplicator      = MessageDeduplicator(ttl_minutes=10)
 def _handle_with_semaphore(phone: str, text, interactive_id):
     """Acquire semaphore before processing; release when done."""
     if not _handler_semaphore.acquire(blocking=False):
-        logger.warning(f"[WEBHOOK] Handler capacity exceeded, dropping message from {mask_phone(phone)}")
+        logger.warning(
+            "[WEBHOOK] Handler capacity exceeded, dropping message from %s",
+            mask_phone(phone),
+        )
         metrics.inc('handler_dropped')
         return
     try:
@@ -150,7 +157,10 @@ def _extract_interactive_id(msg: dict, phone: str) -> str | None:
     if not id_:
         return None
     if len(id_) > _MAX_INTERACTIVE_ID_LEN:
-        logger.warning(f"[WEBHOOK] interactive_id too long from {mask_phone(phone)}, skipping")
+        logger.warning(
+            "[WEBHOOK] interactive_id too long from %s, skipping",
+            mask_phone(phone),
+        )
         return None
     logger.info(f"[WEBHOOK] interactive from {mask_phone(phone)}: {id_}")
     return id_
@@ -169,7 +179,10 @@ def _validate_and_extract(msg: dict, ip: str) -> dict | None:
     metrics.inc('messages_received')
     message_id = msg.get("id", "")
     if message_id and _deduplicator.seen(message_id):
-        logger.info(f"[WEBHOOK] Duplicate msg_id={message_id} from {mask_phone(phone)}, skipping")
+        logger.info(
+            "[WEBHOOK] Duplicate msg_id=%s from %s, skipping",
+            message_id, mask_phone(phone),
+        )
         return None
     msg_type = msg.get("type", "")
     if msg_type == "text":
@@ -184,7 +197,10 @@ def _validate_and_extract(msg: dict, ip: str) -> dict | None:
         return {"phone": phone, "text": None, "interactive_id": iid}
     else:
         # audio, image, sticker, etc. → trigger fallback menu
-        logger.info(f"[WEBHOOK] unsupported type '{msg_type}' from {mask_phone(phone)} → fallback")
+        logger.info(
+            "[WEBHOOK] unsupported type '%s' from %s → fallback",
+            msg_type, mask_phone(phone),
+        )
         return {"phone": phone, "text": "__unknown__", "interactive_id": None}
 
 

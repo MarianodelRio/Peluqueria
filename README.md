@@ -1,269 +1,476 @@
-# Sistema de Citas — Peluquería
+# Peluquería Citas — Bot de WhatsApp
 
-Bot de WhatsApp para gestión de citas integrado con Google Calendar.
-Los clientes reservan, consultan y cancelan citas por WhatsApp. El peluquero gestiona todo desde Google Calendar.
+Bot de WhatsApp para gestión de citas de peluquería, integrado con Google Calendar.
+Los clientes reservan, mueven y cancelan citas por WhatsApp. El peluquero gestiona todo desde Google Calendar.
+
+No hay base de datos — Google Calendar es la única fuente de verdad.
 
 ---
 
 ## Cómo funciona
 
 ### El cliente (por WhatsApp)
+
 1. Escribe cualquier mensaje → el bot muestra el menú principal
-2. Elige **Pedir cita** → selecciona el servicio → selecciona día y hora
-3. Escribe su nombre → la cita queda registrada en Calendar
-4. Puede consultar sus citas o cancelarlas en cualquier momento
-5. Recibe un recordatorio automático ~24h antes con botones de confirmar/cancelar
-
-### Servicios disponibles
-
-| Servicio | Precio | Peluquero | Cliente en local |
-|----------|--------|-----------|-----------------|
-| Corte de pelo | 10 € | 30 min | 30 min |
-| Corte de pelo + barba | 12 € | 30 min | 30 min |
-| Mechas | 30 € | 1 h | 3 h |
-
-**Peluquero** = duración del evento en Google Calendar (tiempo activo del peluquero). **Cliente en local** = tiempo total que el cliente permanece en la peluquería.
-
-Mechas: el evento bloquea 1 h en la agenda del peluquero (puede atender otra cita después de esa hora), pero el cliente permanece 3 h en la peluquería. Por eso solo se ofrece reserva de mechas cuando quedan al menos 3 h hasta el cierre.
+2. **Pedir cita** → elige servicio → elige día → elige hora → escribe nombre → cita confirmada
+3. **Mover cita** → elige qué cita mover → elige nuevo servicio, día y hora → la cita anterior se cancela y se crea la nueva
+4. **Cancelar cita** → elige qué cita cancelar → cancelada al momento
+5. Recibe un recordatorio automático ~24h antes con botones de confirmar o cancelar
 
 ### El peluquero (desde Google Calendar)
-- Crea eventos con `Telefono: +34XXXXXXXXX` en la descripción → el sistema envía confirmación automática por WhatsApp
-- Crea cualquier evento sin teléfono para bloquear un horario
-- Usa eventos de configuración para cerrar días o cambiar horarios:
 
-```
-[CFG] CERRADO              → cierra ese día
-[CFG] VACACIONES           → cierra el rango del evento
-[CFG] HORARIO 10:00-13:00  → cambia el horario de ese día
-```
+- **Cita manual**: crea un evento con `Telefono: +34XXXXXXXXX` en la descripción → el sistema envía confirmación automática al cliente por WhatsApp
+- **Bloquear horario**: crea un evento sin teléfono → bloquea esas horas sin notificar a nadie
+- **Cerrar un día puntual**: evento de título `[CFG] CERRADO`
+- **Cerrar un rango (vacaciones)**: evento de título `[CFG] VACACIONES`
+- **Cambiar horario un día**: evento de título `[CFG] HORARIO 10:00-13:00`
 
-### Procesos automáticos (scheduler en segundo plano)
-| Job | Frecuencia | Descripción |
-|-----|-----------|-------------|
-| Sync citas manuales | Cada 5 min | Detecta citas nuevas del peluquero y envía confirmación |
-| Recordatorios 24h | Cada hora | Envía recordatorio con botones confirmar/cancelar |
+### Procesos automáticos
+
+| Job | Frecuencia | Qué hace |
+|-----|-----------|---------|
+| Sync citas manuales | Cada 60 min | Detecta citas del peluquero y envía confirmación al cliente |
+| Recordatorios 24h | Cada 60 min | Envía recordatorio con botones confirmar/cancelar |
 | Limpiar estados | Cada 10 min | Elimina conversaciones inactivas (> 30 min) |
 
 ---
 
-## Estructura del proyecto
+## Arquitectura
 
 ```
-Peluqueria/
-├── app/                         # Código fuente de la aplicación
-│   ├── config.py                # Toda la configuración centralizada
-│   ├── main.py                  # Punto de entrada FastAPI + lifespan
-│   ├── handlers/
-│   │   ├── webhook.py           # Endpoints GET/POST /webhook
-│   │   └── conversation.py      # Máquina de estados de conversación
-│   ├── services/
-│   │   ├── calendar.py          # Operaciones Google Calendar API
-│   │   ├── whatsapp.py          # Envío de mensajes WhatsApp Cloud API
-│   │   └── scheduler.py         # Jobs automáticos (APScheduler)
-│   └── utils/
-│       ├── parser.py            # Parseo robusto de descripciones de eventos
-│       ├── slots.py             # Generación de slots y disponibilidad
-│       ├── interactive.py       # Builders de mensajes interactivos WhatsApp
-│       └── messages.py          # Textos en español
-│
-├── tests/                       # Suite de tests (pytest)
-│   ├── conftest.py              # Fixtures compartidos
-│   ├── test_calendar.py
-│   ├── test_conversation.py
-│   ├── test_interactive.py
-│   ├── test_parser.py
-│   ├── test_regression.py
-│   ├── test_slots.py
-│   ├── test_webhook.py
-│   └── test_whatsapp.py
-│
-├── .env.example                 # Plantilla de variables de entorno
-├── .gitignore
-├── pytest.ini
-├── requirements.txt             # Dependencias de producción
-├── requirements-dev.txt         # Dependencias de desarrollo y tests
-└── README.md
+Cliente WhatsApp
+      │
+      ▼
+Meta (WhatsApp Cloud API)
+      │  webhook HTTPS
+      ▼
+VM Linux (Ubuntu 22.04) — Google Cloud
+  ├── ngrok              (túnel HTTPS → localhost:8000)
+  ├── FastAPI + Uvicorn  (puerto 8000, solo localhost)
+  ├── APScheduler        (jobs automáticos)
+  └── Watchdog cron      (comprobaciones cada 5 min)
+      │
+      ▼
+Google Calendar (fuente de verdad)
 ```
 
 ---
 
-## Requisitos previos
+## Checklist de recursos previos
 
-- Python 3.10+
-- Cuenta en Google Cloud con **Calendar API** activada y un Service Account
-- Cuenta en **Meta for Developers** con WhatsApp Cloud API configurada
-- [`ngrok`](https://ngrok.com/) para exponer el servidor en desarrollo
+- [ ] **SIM del negocio** — número de teléfono real para WhatsApp Business (sin WhatsApp instalado, o que puedas desvincularlo)
+- [ ] **Gmail del negocio** — cuenta Gmail específica del negocio, no la personal. Se usa para Google Cloud y Meta Business
+- [ ] **Tarjeta de crédito/débito** — Google Cloud la pide para verificar identidad. El plan gratuito no cobra nada
+- [ ] **Tests pasando** — ejecuta `pytest` en local antes de desplegar
 
 ---
 
-## Instalación
+## 1. Servicios externos
+
+### 1.1 Google Cloud
+
+Todo con el **Gmail del negocio**.
+
+**Crear cuenta y proyecto**
+1. Ve a [console.cloud.google.com](https://console.cloud.google.com) → inicia sesión → acepta términos → introduce tarjeta (solo verificación, no se cobra)
+2. Selector de proyectos (arriba izquierda) → **Nuevo proyecto** → nombre: `peluqueria-citas` → Crear
+
+**Activar Google Calendar API**
+1. Menú izquierdo → **APIs y servicios → Biblioteca**
+2. Busca `Google Calendar API` → click → **Habilitar**
+
+**Crear Service Account**
+1. **APIs y servicios → Credenciales → Crear credenciales → Cuenta de servicio**
+2. Nombre: `peluqueria-backend` → Crear y continuar → Listo
+3. Click en la cuenta creada → pestaña **Claves** → **Añadir clave → JSON → Crear**
+4. Se descarga un JSON. Renómbralo `credentials.json` y guárdalo — **solo se puede descargar una vez**
+
+> ⚠️ `credentials.json` es la clave privada del bot. Nunca lo subas a git.
+
+Anota el campo `client_email` del JSON (ej: `peluqueria-backend@peluqueria-citas.iam.gserviceaccount.com`).
+
+**Crear el calendario y compartirlo**
+1. [calendar.google.com](https://calendar.google.com) → menú izquierdo → junto a "Otros calendarios" → **+** → **Crear nuevo calendario** → nombre: `Citas Peluquería`
+2. En el calendario creado → tres puntos → **Configuración y uso compartido**
+3. **Compartir con personas específicas → Añadir personas** → pega el `client_email` → permisos: **Realizar cambios en eventos** → Enviar
+4. En la misma página → **Integrar calendario** → copia el **ID del calendario** (ej: `c_abc123@group.calendar.google.com`)
+
+---
+
+### 1.2 Meta / WhatsApp Business
+
+Todo con el **Gmail del negocio**.
+
+**Crear Meta Business Account**
+1. Ve a [business.facebook.com](https://business.facebook.com) → Crear cuenta → nombre del negocio → email
+
+**Crear app de desarrollador**
+1. Ve a [developers.facebook.com](https://developers.facebook.com) → **Mis apps → Crear app**
+2. Tipo: **Business** → nombre: `Peluqueria Citas` → vincula con tu Meta Business Account
+
+**Añadir WhatsApp y registrar el número**
+1. En la app → **Añadir productos → WhatsApp → Configurar**
+2. **Gestión de API → Números de teléfono → Añadir número** → introduce la SIM del negocio → introduce el código SMS
+
+**Obtener credenciales**
+En **WhatsApp → Configuración de la API**:
+- **Phone Number ID** → `WHATSAPP_PHONE_NUMBER_ID` en el `.env`
+- En Configuración → Básica → **App Secret** → `WHATSAPP_APP_SECRET` en el `.env`
+
+**Crear token permanente** (el token de pruebas expira en 24h)
+1. Ve a [business.facebook.com/settings](https://business.facebook.com/settings)
+2. **Usuarios → Usuarios del sistema → Añadir** → nombre: `peluqueria-bot`, rol: **Administrador**
+3. Click en el usuario → **Añadir activos** → selecciona tu app → permisos: `whatsapp_business_messaging` y `whatsapp_business_management`
+4. **Generar token → Sin expiración** → copia el token → `WHATSAPP_ACCESS_TOKEN` en el `.env`
+
+---
+
+### 1.3 ngrok
+
+1. Crea cuenta en [ngrok.com](https://ngrok.com) (plan gratuito)
+2. Dashboard → **Domains → New Domain** → reclama un dominio estático (ej: `mi-peluqueria.ngrok-free.app`)
+3. Copia el **Auth Token** desde el dashboard → `NGROK_TOKEN` en el `.env`
+
+> Usa siempre el dominio estático, nunca una URL temporal. El dominio estático no cambia aunque ngrok se reinicie.
+
+---
+
+## 2. config.yaml — configuración del negocio
+
+El fichero `config.yaml` en la raíz contiene toda la configuración del negocio. Se edita directamente en texto y el bot lo lee al arrancar. Cualquier cambio requiere reiniciar el bot (`make start`).
+
+```yaml
+negocio:
+  nombre: "DM Barber Shop"
+  telefono_contacto: "+34 676 27 38 00"  # número del negocio (para el QR)
+  admin_phone: "34676273800"              # recibe alertas del watchdog y puede usar /estado
+
+horario:
+  lunes:
+    - ["10:00", "14:00"]
+    - ["17:00", "21:00"]
+  martes:
+    - ["10:00", "14:00"]
+    - ["17:00", "21:00"]
+  # días no listados = cerrado (ej: domingo)
+
+ventana_busqueda_dias: 14  # días hacia adelante que se ofrecen al cliente
+
+servicios:
+  corte:
+    nombre: "Corte de pelo"
+    precio: 10
+    duracion_min: 30           # tiempo activo del peluquero (duración del evento en Calendar)
+    presencia_cliente_min: 30  # tiempo total del cliente en el local
+  # máximo 9 servicios (límite de WhatsApp)
+
+envios:
+  recordatorios: false    # recordatorios automáticos 24h antes
+  confirmaciones: false   # confirmaciones de citas manuales del peluquero
+
+recordatorio_horas_antes:
+  desde: 23
+  hasta: 25  # envía si la cita es entre 23h y 25h desde ahora
+
+# Evento especial — añade una opción extra "Cita [nombre]" en el menú principal
+evento:
+  activo: false
+  nombre: "Navidad 2026"
+  dias:
+    "2026-12-20": [["10:00", "14:00"]]
+```
+
+---
+
+## 3. Templates de WhatsApp
+
+Los templates son mensajes pre-aprobados por Meta para contactar al cliente fuera de la ventana de 24h. Son necesarios para que funcionen los recordatorios y las confirmaciones de citas manuales.
+
+**Dónde crearlos**: Meta Business Suite → Cuenta de WhatsApp → Herramientas → Plantillas de mensajes → Crear plantilla
+
+> ⚠️ Los templates tardan entre 1h y 48h en aprobarse. Créalos todos a la vez antes de necesitarlos.
+
+---
+
+### Template 1 — `confirmacion_cita`
+
+| Campo | Valor |
+|---|---|
+| Nombre | `confirmacion_cita` |
+| Categoría | `Utility` |
+| Idioma | `Español (España)` |
+
+**Cuerpo:**
+```
+Hola {{1}}, tu cita ha sido confirmada para el {{2}} a las {{3}}.
+
+Si necesitas cancelarla, pulsa el botón.
+```
+**Botón de respuesta rápida:** `Cancelar cita`
+
+---
+
+### Template 2 — `recordatorio_cita`
+
+| Campo | Valor |
+|---|---|
+| Nombre | `recordatorio_cita` |
+| Categoría | `Utility` |
+| Idioma | `Español (España)` |
+
+**Cuerpo:**
+```
+Recuerda que tienes cita el {{1}} a las {{2}}. ¿Confirmas tu asistencia?
+```
+**Botón 1 respuesta rápida:** `Confirmar`
+**Botón 2 respuesta rápida:** `Cancelar`
+
+---
+
+### Template 3 — `alerta_sistema`
+
+| Campo | Valor |
+|---|---|
+| Nombre | `alerta_sistema` |
+| Categoría | `Utility` |
+| Idioma | `Español (España)` |
+
+**Cuerpo:**
+```
+⚠️ Alerta del sistema: {{1}}
+Fecha: {{2}}
+Detalle: {{3}}
+```
+Sin botones.
+
+---
+
+## 4. Desarrollo local
+
+Flujo para desarrollar y testear en tu máquina, sin usar el Makefile.
+
+### 4.1 Preparar el entorno
 
 ```bash
-# Clonar el repositorio
 git clone <repo-url>
-cd app_peluqueria
+cd Peluqueria
 
-# Crear entorno virtual
-python3 -m venv venv
-source venv/bin/activate          # Linux/Mac
-# venv\Scripts\activate           # Windows
+python3.11 -m venv venv
+source venv/bin/activate
 
-# Instalar dependencias de producción
 pip install -r requirements.txt
-
-# O instalar también las de desarrollo (tests)
-pip install -r requirements-dev.txt
 ```
 
----
-
-## Configuración
-
-### 1. Variables de entorno
-
-Copiar la plantilla y rellenar los valores:
+### 4.2 Configurar el .env
 
 ```bash
 cp .env.example .env
+# edita .env con tus credenciales reales
 ```
 
+Variables obligatorias:
 ```ini
-# .env
 WHATSAPP_PHONE_NUMBER_ID=123456789012345
 WHATSAPP_ACCESS_TOKEN=EAAxxxxxxxxxxxxx
-WHATSAPP_VERIFY_TOKEN=mi_token_secreto_123
-GOOGLE_CREDENTIALS_PATH=/ruta/absoluta/credentials.json
-GOOGLE_CALENDAR_ID=xxxxxxxxxx@group.calendar.google.com
+WHATSAPP_VERIFY_TOKEN=cualquier_string_secreto
+WHATSAPP_APP_SECRET=abc123def456
+GOOGLE_CALENDAR_ID=c_abc123@group.calendar.google.com
+GOOGLE_CREDENTIALS_PATH=./credentials.json
+ADMIN_PHONE=34612345678
 ```
 
-> **Importante:** `.env` y `credentials.json` están en `.gitignore`. Nunca los subas al repositorio.
+Coloca `credentials.json` en la raíz del proyecto.
 
-### 2. Credenciales Google Calendar
-
-1. [Google Cloud Console](https://console.cloud.google.com/) → crear proyecto → activar **Google Calendar API**
-2. Crear **Service Account** → descargar JSON → guardarlo fuera del repo (ej: `~/secrets/credentials.json`)
-3. En Google Calendar: crear un calendario → compartirlo con el email del Service Account (permisos de edición)
-4. Copiar el **Calendar ID** desde Configuración del calendario → Integrar calendario
-
-### 3. Credenciales WhatsApp
-
-1. [Meta for Developers](https://developers.facebook.com/) → crear app de tipo **Business**
-2. Añadir producto **WhatsApp** → configurar número de teléfono
-3. Obtener **Phone Number ID** y **Access Token** permanente
-4. Definir un **Verify Token** (cualquier string, ej: `mi_token_secreto_123`)
-
-### 4. Horario base
-
-En `app/config.py`, modificar `HORARIO_BASE` (días 0=Lunes … 6=Domingo):
-
-```python
-HORARIO_BASE = {
-    0: [("10:00", "14:00"), ("16:00", "20:00")],  # Lunes
-    1: [("10:00", "14:00"), ("16:00", "20:00")],  # Martes
-    2: [("10:00", "14:00"), ("16:00", "20:00")],  # Miércoles
-    3: [("10:00", "14:00"), ("16:00", "20:00")],  # Jueves
-    4: [("10:00", "14:00"), ("16:00", "20:00")],  # Viernes
-    5: [("10:00", "14:00")],                       # Sábado (solo mañana)
-    # Días sin entrada = cerrado (ej: domingo)
-}
-```
-
-Para cambios puntuales sin reiniciar el servidor, usa eventos `[CFG]` en Google Calendar.
-
----
-
-## Arrancar el servidor
-
-### Desarrollo (con ngrok)
+### 4.3 Arrancar
 
 ```bash
-# Terminal 1 — servidor
+# Terminal 1 — bot
 source venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 
-# Terminal 2 — túnel público
-ngrok http 8000
+# Terminal 2 — túnel HTTPS
+ngrok config add-authtoken TU_AUTH_TOKEN
+ngrok http --domain=tu-dominio.ngrok-free.app 8000
 ```
 
-ngrok mostrará una URL como `https://abc123.ngrok-free.app`.
+### 4.4 Configurar el webhook en Meta (primera vez)
 
-**Configurar webhook en Meta:**
-1. Meta for Developers → tu app → WhatsApp → Configuración
-2. **Webhook URL:** `https://abc123.ngrok-free.app/webhook`
-3. **Verify Token:** el mismo valor que en `.env`
-4. Suscribirse a: `messages`, `message_status`
-5. Pulsar **Verificar y guardar**
+1. Meta for Developers → tu app → WhatsApp → Configuración → Webhook → **Editar**
+2. **URL del webhook**: `https://tu-dominio.ngrok-free.app/webhook`
+3. **Token de verificación**: el valor de `WHATSAPP_VERIFY_TOKEN` en el `.env`
+4. **Verificar y guardar** → en **Campos de webhook** activa `messages` → Suscribirse
 
-### Verificar que funciona
-
+Comprueba que funciona:
 ```bash
 curl http://localhost:8000/health
-# {"status":"ok","calendar":"ok","metrics":{...}}   ← todo correcto
-# {"status":"degraded","calendar":"error","metrics":{...}}  ← problema con Calendar API
+# {"status":"ok","calendar":"ok",...}
 ```
 
-### Producción (servidor Linux)
-
-```bash
-# Con nohup
-source venv/bin/activate
-nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > logs.txt 2>&1 &
-tail -f logs.txt
-```
-
-Con **systemd** — crear `/etc/systemd/system/peluqueria.service`:
-
-```ini
-[Unit]
-Description=Peluqueria Citas Bot
-After=network.target
-
-[Service]
-User=tu_usuario
-WorkingDirectory=/ruta/a/app_peluqueria
-EnvironmentFile=/ruta/a/app_peluqueria/.env
-ExecStart=/ruta/a/app_peluqueria/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable peluqueria
-sudo systemctl start peluqueria
-sudo systemctl status peluqueria
-```
-
----
-
-## Tests
-
-```bash
-# Activar entorno virtual
-source venv/bin/activate
-
-# Ejecutar todos los tests
-pytest
-
-# Con cobertura
-pytest --cov=app --cov-report=term-missing
-
-# Un módulo concreto
-pytest tests/test_conversation.py -v
-```
+### 4.5 Tests
 
 Los tests no requieren credenciales reales — todas las APIs externas están mockeadas.
 
+```bash
+pytest                                    # todos los tests
+pytest --cov=app --cov-report=term-missing  # con cobertura
+pytest tests/test_conversation.py -v      # un módulo concreto
+```
+
 ---
 
-## Solución de problemas
+## 5. Despliegue en VM (producción)
+
+### 5.1 Crear la VM en Google Cloud
+
+En **Compute Engine → Instancias de VM → Crear instancia**:
+
+| Campo | Valor |
+|---|---|
+| Nombre | `peluqueria-vm` |
+| Región | `us-east1` (free tier perpetuo) |
+| Tipo de máquina | `e2-micro` (0.25 vCPU, 1 GB RAM) |
+| Sistema operativo | Ubuntu 22.04 LTS |
+| Disco | 30 GB estándar |
+
+En **Opciones avanzadas → Redes**: marca **Permitir tráfico HTTP** y **Permitir tráfico HTTPS**.
+
+Reserva IP estática: **Red de VPC → Direcciones IP externas** → busca la IP de tu instancia → **Estática** → nombre: `peluqueria-ip`.
+
+### 5.2 Preparar la VM
+
+Conecta por SSH (botón SSH en la consola de Google Cloud).
+
+```bash
+sudo apt install -y make
+git clone https://github.com/TU_USUARIO/TU_REPO.git ~/app
+cd ~/app
+```
+
+Sube los ficheros sensibles desde tu máquina local:
+```bash
+gcloud compute scp credentials.json peluqueria@peluqueria-vm:~/app/credentials.json --zone=us-east1-b
+```
+
+En la VM:
+```bash
+cp .env.example .env
+nano .env              # rellena todos los valores
+chmod 600 .env credentials.json
+nano Makefile          # edita: NGROK_DOMAIN := tu-dominio.ngrok-free.app
+```
+
+### 5.3 Instalar y arrancar
+
+```bash
+make setup      # instala Python 3.11, git, curl, ngrok y crea /var/log/peluqueria
+make install    # crea el entorno virtual e instala dependencias Python
+make services   # registra los servicios systemd y el cron del watchdog
+make start      # arranca el bot y el túnel ngrok
+```
+
+Verifica:
+```bash
+make status   # todos los servicios deben mostrar "active (running)"
+make health   # {"status":"ok","calendar":"ok",...}
+```
+
+### 5.4 Conectar con Meta
+
+Con el bot corriendo y ngrok activo:
+1. Meta for Developers → tu app → WhatsApp → Configuración → Webhook → **Editar**
+2. **URL**: `https://tu-dominio.ngrok-free.app/webhook`
+3. **Token de verificación**: valor de `WHATSAPP_VERIFY_TOKEN` en el `.env`
+4. **Verificar y guardar** → activa `messages` → Suscribirse
+
+---
+
+## 6. Operación diaria
+
+```bash
+make update          # git pull + pip install (descarga cambios)
+make test            # ejecuta los tests
+make start           # arranca o reinicia todos los servicios
+make status          # estado de todos los servicios
+make health          # comprueba conectividad
+make logs            # logs del bot en tiempo real
+make logs-ngrok      # logs del túnel ngrok
+make logs-watchdog   # logs del watchdog
+make stop            # para todos los servicios
+make qr              # genera qr_cita.png con el enlace de WhatsApp del negocio
+```
+
+**Flujo de despliegue de cambios:**
+```bash
+make update   # descarga los cambios
+make test     # verifica que todo sigue funcionando
+make start    # reinicia el bot con el nuevo código
+```
+
+**Watchdog automático** — corre cada 5 min vía cron y comprueba:
+- `/health` del bot — caídas y fallos de Calendar
+- RAM > 90% y disco > 90%
+- Spike de errores en `/metrics`
+
+Si detecta un problema envía un WhatsApp al `ADMIN_PHONE` usando el template `alerta_sistema` (cooldown de 30 min entre alertas del mismo tipo).
+
+**Reinicio nocturno** — `peluqueria-restart.timer` reinicia el bot cada noche a las 4:00 AM. Limpia memoria, conexiones colgadas y estados de conversación.
+
+---
+
+## 7. Estructura del proyecto
+
+```
+Peluqueria/
+├── app/
+│   ├── config.py               # Carga y valida config.yaml + variables de entorno
+│   ├── main.py                 # FastAPI app + lifespan (scheduler) + /health + /metrics
+│   ├── handlers/
+│   │   ├── webhook.py          # GET/POST /webhook — HMAC, rate limiting, dedup
+│   │   └── conversation.py     # Máquina de estados: reserva, mover, cancelar
+│   ├── services/
+│   │   ├── calendar/           # Todas las operaciones con Google Calendar
+│   │   │   ├── service.py      # API pública: reservar, cancelar, mover, slots
+│   │   │   ├── queries.py      # Lecturas de Calendar
+│   │   │   ├── mutations.py    # Escrituras de Calendar
+│   │   │   ├── engine.py       # Lógica de slots y disponibilidad
+│   │   │   ├── caches.py       # Caché de slots (TTL 30s)
+│   │   │   ├── locks.py        # Locks por slot (evita doble reserva)
+│   │   │   ├── client.py       # Cliente HTTP de Google Calendar API
+│   │   │   └── repository.py   # Acceso directo a eventos
+│   │   ├── whatsapp.py         # send_text_message, send_interactive, send_template
+│   │   └── scheduler.py        # Jobs APScheduler: sync, recordatorios, limpieza
+│   └── utils/
+│       ├── interactive.py      # Builders de mensajes interactivos WhatsApp
+│       ├── messages.py         # Textos en español
+│       ├── parser.py           # Parseo de descripciones de eventos de Calendar
+│       ├── slots.py            # Generación y filtrado de slots horarios
+│       ├── admin.py            # Informe de estado para el comando /estado
+│       ├── metrics.py          # Contadores en memoria
+│       ├── dedup.py            # Deduplicación de mensajes entrantes
+│       ├── rate_limiter.py     # Rate limiting por IP y por teléfono
+│       └── security.py         # Enmascarado de teléfonos en logs
+│
+├── tests/                      # Suite de tests — todas las APIs mockeadas
+│
+├── config.yaml                 # Configuración del negocio (horario, servicios, etc.)
+├── watchdog.py                 # Monitorización (cron cada 5 min)
+├── generar_qr.py               # Genera qr_cita.png con el enlace de WhatsApp
+├── Makefile                    # Automatización de instalación y operación
+├── .env.example                # Plantilla de variables de entorno
+├── requirements.txt            # Dependencias Python
+└── pytest.ini                  # Configuración de pytest
+```
+
+---
+
+## 8. Troubleshooting
 
 | Síntoma | Causa probable | Solución |
-|---------|---------------|----------|
+|---|---|---|
 | `{"status":"degraded"}` en /health | Calendar API inaccesible | Verificar `credentials.json` y permisos del Service Account |
+| Bot no responde mensajes | ngrok caído o webhook no suscrito | `make status` → `make start` → verificar URL en Meta |
 | Webhook no verifica (403) | Token incorrecto o URL mal configurada | Comprobar `WHATSAPP_VERIFY_TOKEN` en `.env` y en Meta |
-| Bot no responde mensajes | ngrok caído o webhook no suscrito | Reiniciar ngrok y actualizar URL en Meta |
-| No llegan recordatorios | `Recordatorio: sí` ya en el evento | Normal si ya se envió; verificar que el teléfono está en la descripción |
-| `ModuleNotFoundError: app` | pytest no encuentra el paquete | Asegurarse de que existe `pytest.ini` con `pythonpath = .` |
+| HTTP 401 en logs de WhatsApp | Token de acceso expirado | Generar nuevo token en Meta → actualizar `.env` → `make start` |
+| No llegan recordatorios | Templates no aprobados o `envios.recordatorios: false` | Verificar estado en Meta Business Suite y activar en `config.yaml` |
+| `ModuleNotFoundError: app` en pytest | pytest no encuentra el paquete | Verificar que existe `pytest.ini` con `pythonpath = .` |
+| ngrok se desconecta frecuentemente | Sesión caída | `make start` reinicia ngrok; revisar `make logs-ngrok` |

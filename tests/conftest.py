@@ -5,8 +5,8 @@ All external dependencies (Google Calendar API, WhatsApp API, httpx) are mocked
 so tests run without credentials or network access.
 """
 import pytest
-from datetime import date, datetime
-from unittest.mock import MagicMock, patch
+from datetime import datetime
+from unittest.mock import patch
 import pytz
 
 TZ = pytz.timezone("Europe/Madrid")
@@ -65,11 +65,24 @@ def mock_wa(monkeypatch):
 @pytest.fixture
 def mock_cal(monkeypatch):
     """Patch calendar service functions used by conversation handler."""
-    with patch("app.services.calendar.get_slots_disponibles", return_value=[]) as slots, \
-         patch("app.services.calendar.get_citas_futuras", return_value=[]) as futuras, \
-         patch("app.services.calendar.reservar_cita", return_value=("evt_new", None)) as reservar, \
-         patch("app.services.calendar.cancelar_cita", return_value=True) as cancelar, \
-         patch("app.services.calendar.confirmar_cita", return_value=True) as confirmar:
+    with (
+        patch(
+            "app.services.calendar.get_slots_disponibles", return_value=[]
+        ) as slots,
+        patch(
+            "app.services.calendar.get_citas_futuras", return_value=[]
+        ) as futuras,
+        patch(
+            "app.services.calendar.reservar_cita",
+            return_value=("evt_new", None),
+        ) as reservar,
+        patch(
+            "app.services.calendar.cancelar_cita", return_value=True
+        ) as cancelar,
+        patch(
+            "app.services.calendar.confirmar_cita", return_value=True
+        ) as confirmar,
+    ):
         yield {
             "slots": slots,
             "futuras": futuras,

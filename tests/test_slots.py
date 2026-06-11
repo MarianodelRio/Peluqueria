@@ -3,8 +3,7 @@
 Unit tests for utils/slots.py.
 Covers slot generation, availability filtering, date helpers and edge cases.
 """
-import pytest
-from datetime import date, timedelta
+from datetime import date
 from unittest.mock import patch
 import pytz
 
@@ -44,14 +43,18 @@ class TestGenerateSlots:
         # Uses HORARIO_BASE morning period to stay config-aligned
         start, end = HORARIO_BASE[1][0]
         slots = generate_slots(start, end)
-        minutes = (int(end[:2]) * 60 + int(end[3:])) - (int(start[:2]) * 60 + int(start[3:]))
+        end_min = int(end[:2]) * 60 + int(end[3:])
+        start_min = int(start[:2]) * 60 + int(start[3:])
+        minutes = end_min - start_min
         assert len(slots) == minutes // CITA_DURACION_MIN
         assert slots[0] == start
 
     def test_afternoon_block(self):
         start, end = HORARIO_BASE[1][1]
         slots = generate_slots(start, end)
-        minutes = (int(end[:2]) * 60 + int(end[3:])) - (int(start[:2]) * 60 + int(start[3:]))
+        end_min = int(end[:2]) * 60 + int(end[3:])
+        start_min = int(start[:2]) * 60 + int(start[3:])
+        minutes = end_min - start_min
         assert len(slots) == minutes // CITA_DURACION_MIN
         assert slots[0] == start
 
@@ -69,7 +72,8 @@ class TestGenerateSlots:
         assert "11:00" not in slots
 
     def test_duracion_120_produces_correct_slots(self):
-        # 10:00-14:00 with 120-min window, 30-min step → slots at 10:00, 10:30, 11:00, 11:30, 12:00
+        # 10:00-14:00 with 120-min window, 30-min step
+        # → slots at 10:00, 10:30, 11:00, 11:30, 12:00
         slots = generate_slots("10:00", "14:00", presencia_cliente_min=120)
         assert slots == ["10:00", "10:30", "11:00", "11:30", "12:00"]
 
@@ -81,7 +85,8 @@ class TestGenerateSlots:
 
     def test_generate_slots_last_slot_respects_presencia_cliente(self):
         # 17:00-21:00, presencia=180 min, step=30 min
-        # 17:00+180=1200≤1260 ✓, 17:30+180=1230≤1260 ✓, 18:00+180=1260≤1260 ✓, 18:30+180=1290>1260 ✗
+        # 17:00+180=1200≤1260 ✓, 17:30+180=1230≤1260 ✓,
+        # 18:00+180=1260≤1260 ✓, 18:30+180=1290>1260 ✗
         result = generate_slots("17:00", "21:00", 180, step_min=30)
         assert result == ["17:00", "17:30", "18:00"]
         assert "19:00" not in result
@@ -274,7 +279,7 @@ class TestGetNextDays:
         with patch("app.utils.slots.datetime") as mock_dt:
             mock_dt.now.return_value = monday
             days = get_next_days(7)
-        # range(8): Mon23, Tue24, Wed25, Thu26, Fri27, Sat28, Sun29(skip), Mon30 → 7 working days
+        # range(8): Mon23..Sat28, Sun29(skip), Mon30 → 7 working days
         assert len(days) == 7
 
 
@@ -306,7 +311,6 @@ class TestEventSlots:
         return patch("app.utils.slots.EVENTO_DIAS", dias)
 
     def test_get_event_days_returns_future_dates_sorted(self):
-        today = TZ.localize(__import__("datetime").datetime(2026, 6, 1)).date()
         dias = {
             "2026-06-10": [["10:00", "14:00"]],
             "2026-06-05": [["10:00", "14:00"]],
@@ -314,7 +318,8 @@ class TestEventSlots:
         }
         with self._patch_evento(dias), \
              patch("app.utils.slots.datetime") as mock_dt:
-            mock_dt.now.return_value = TZ.localize(__import__("datetime").datetime(2026, 6, 1))
+            _dt_val = __import__("datetime").datetime(2026, 6, 1)
+            mock_dt.now.return_value = TZ.localize(_dt_val)
             result = get_event_days()
         assert result == [date(2026, 6, 5), date(2026, 6, 10), date(2026, 6, 20)]
 
@@ -356,7 +361,8 @@ class TestEventSlots:
         d = date(2099, 12, 25)
         with self._patch_evento(dias):
             slots = get_event_slots_for_day(d, presencia_cliente_min=180)
-        # 10:00+180=13:00 ≤ 14:00 ✓; 11:00+180=14:00 ≤ 14:00 ✓; 11:30+180=14:30 > 14:00 ✗
+        # 10:00+180=13:00 ≤ 14:00 ✓; 11:00+180=14:00 ≤ 14:00 ✓;
+        # 11:30+180=14:30 > 14:00 ✗
         assert "10:00" in slots
         assert "11:00" in slots
         assert "11:30" not in slots

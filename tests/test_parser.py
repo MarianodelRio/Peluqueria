@@ -3,7 +3,6 @@
 Unit tests for utils/parser.py.
 All functions must be case-insensitive, accent-tolerant and never raise.
 """
-import pytest
 from app.utils.parser import (
     _norm,
     _strip_html,
@@ -33,7 +32,7 @@ class TestNorm:
     def test_nfc_precomposed(self):
         # NFC variant (single codepoint é) and NFD (e + combining accent) both → e
         assert _norm("\xe9") == "e"          # é precomposed
-        assert _norm("e\u0301") == "e"       # e + combining acute
+        assert _norm("é") == "e"       # e + combining acute
 
     def test_whitespace_stripped(self):
         assert _norm("  pendiente  ") == "pendiente"
@@ -120,7 +119,8 @@ class TestParseTel:
         assert parse_tel("Telefono: 346-000-000-01") == "34600000001"
 
     def test_plus_prefix_stripped_for_normalisation(self):
-        # '+' is stripped so WhatsApp numbers (no '+') match manual Calendar entries ('+34...')
+        # '+' is stripped so WhatsApp numbers (no '+') match
+        # manual Calendar entries ('+34...')
         result = parse_tel("Telefono: +34600000001")
         assert result == "34600000001"
 
@@ -235,7 +235,7 @@ class TestParseCfg:
 
     def test_horario_en_dash(self):
         # En-dash separator (–)
-        result = parse_cfg("[CFG] HORARIO 10:00\u201314:00")
+        result = parse_cfg("[CFG] HORARIO 10:00–14:00")
         assert result == {"type": "horario", "start": "10:00", "end": "14:00"}
 
     def test_cfg_lowercase(self):
@@ -267,19 +267,24 @@ class TestParseCfg:
 
 class TestParseServicioFromTitle:
     def test_basic_corte(self):
-        assert parse_servicio_from_title("Corte - Juan Garcia") == ("corte", "Juan Garcia")
+        result = parse_servicio_from_title("Corte - Juan Garcia")
+        assert result == ("corte", "Juan Garcia")
 
     def test_corte_barba_y(self):
-        assert parse_servicio_from_title("Corte y barba - Paco") == ("corte_barba", "Paco")
+        result = parse_servicio_from_title("Corte y barba - Paco")
+        assert result == ("corte_barba", "Paco")
 
     def test_corte_barba_plus(self):
-        assert parse_servicio_from_title("Corte+barba - Paco") == ("corte_barba", "Paco")
+        result = parse_servicio_from_title("Corte+barba - Paco")
+        assert result == ("corte_barba", "Paco")
 
     def test_corte_barba_space(self):
-        assert parse_servicio_from_title("Corte barba - Paco") == ("corte_barba", "Paco")
+        result = parse_servicio_from_title("Corte barba - Paco")
+        assert result == ("corte_barba", "Paco")
 
     def test_mechas(self):
-        assert parse_servicio_from_title("Mechas - Ana Lopez") == ("mechas", "Ana Lopez")
+        result = parse_servicio_from_title("Mechas - Ana Lopez")
+        assert result == ("mechas", "Ana Lopez")
 
     def test_unknown_returns_none(self):
         assert parse_servicio_from_title("Tinte - Lucia") == (None, None)
@@ -305,7 +310,8 @@ class TestParseServicioFromTitle:
 
     def test_em_dash_separator(self):
         # em-dash (–) used as separator
-        assert parse_servicio_from_title("Corte – Juan Garcia") == ("corte", "Juan Garcia")
+        result = parse_servicio_from_title("Corte – Juan Garcia")
+        assert result == ("corte", "Juan Garcia")
 
 
 # ── set_field ─────────────────────────────────────────────────────────────────
@@ -325,7 +331,10 @@ class TestSetField:
     def test_case_insensitive_replace(self):
         desc = "ESTADO: pendiente"
         result = set_field(desc, "Estado", "confirmada")
-        assert result.count("Estado") == 1 or result.count("estado") + result.count("Estado") == 1
+        assert (
+            result.count("Estado") == 1
+            or result.count("estado") + result.count("Estado") == 1
+        )
         assert "pendiente" not in result
 
     def test_removes_duplicates(self):

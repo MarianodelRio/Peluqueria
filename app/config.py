@@ -47,23 +47,32 @@ def _load_and_validate_yaml(path: str) -> dict:
         with open(path, "r", encoding="utf-8") as fh:
             cfg = yaml.safe_load(fh)
     except FileNotFoundError:
-        raise RuntimeError(f"[CONFIG] Cannot load config.yaml: file not found at '{path}'")
+        raise RuntimeError(
+            f"[CONFIG] Cannot load config.yaml: file not found at '{path}'"
+        )
     except yaml.YAMLError as exc:
         raise RuntimeError(f"[CONFIG] Cannot load config.yaml: invalid YAML — {exc}")
     except Exception as exc:
         raise RuntimeError(f"[CONFIG] Cannot load config.yaml: {exc}")
 
     if not isinstance(cfg, dict):
-        raise RuntimeError("[CONFIG] config.yaml must be a YAML mapping at the top level")
+        raise RuntimeError(
+            "[CONFIG] config.yaml must be a YAML mapping at the top level"
+        )
 
     # Rule 2: negocio.nombre and negocio.telefono_contacto are non-empty strings
     negocio = cfg.get("negocio")
     if not isinstance(negocio, dict):
         raise RuntimeError("[CONFIG] Rule 2: 'negocio' must be a mapping")
     if not isinstance(negocio.get("nombre"), str) or not negocio["nombre"].strip():
-        raise RuntimeError("[CONFIG] Rule 2: 'negocio.nombre' must be a non-empty string")
-    if not isinstance(negocio.get("telefono_contacto"), str) or not negocio["telefono_contacto"].strip():
-        raise RuntimeError("[CONFIG] Rule 2: 'negocio.telefono_contacto' must be a non-empty string")
+        raise RuntimeError(
+            "[CONFIG] Rule 2: 'negocio.nombre' must be a non-empty string"
+        )
+    if (not isinstance(negocio.get("telefono_contacto"), str)
+            or not negocio["telefono_contacto"].strip()):
+        raise RuntimeError(
+            "[CONFIG] Rule 2: 'negocio.telefono_contacto' must be a non-empty string"
+        )
 
     # Rule 3: horario keys, ranges, fin > inicio, no overlap, at least one day
     horario = cfg.get("horario")
@@ -77,21 +86,25 @@ def _load_and_validate_yaml(path: str) -> dict:
             )
         if not isinstance(ranges, list) or len(ranges) == 0:
             raise RuntimeError(
-                f"[CONFIG] Rule 3: 'horario.{day_name}' must be a non-empty list of ranges"
+                f"[CONFIG] Rule 3: 'horario.{day_name}' must be a non-empty"
+                " list of ranges"
             )
         for rng in ranges:
             if not (isinstance(rng, list) and len(rng) == 2):
                 raise RuntimeError(
-                    f"[CONFIG] Rule 3: each range in 'horario.{day_name}' must be a 2-element list [inicio, fin]"
+                    f"[CONFIG] Rule 3: each range in 'horario.{day_name}'"
+                    " must be a 2-element list [inicio, fin]"
                 )
             inicio, fin = rng
             if not (_TIME_RE.match(str(inicio)) and _TIME_RE.match(str(fin))):
                 raise RuntimeError(
-                    f"[CONFIG] Rule 3: range values in 'horario.{day_name}' must be 'HH:MM' strings"
+                    f"[CONFIG] Rule 3: range values in 'horario.{day_name}'"
+                    " must be 'HH:MM' strings"
                 )
             if fin <= inicio:
                 raise RuntimeError(
-                    f"[CONFIG] Rule 3: 'horario.{day_name}' has range where fin ('{fin}') <= inicio ('{inicio}')"
+                    f"[CONFIG] Rule 3: 'horario.{day_name}' has range"
+                    f" where fin ('{fin}') <= inicio ('{inicio}')"
                 )
         if len(ranges) > 1 and _ranges_overlap(ranges):
             raise RuntimeError(
@@ -101,7 +114,9 @@ def _load_and_validate_yaml(path: str) -> dict:
     # Rule 4: ventana_busqueda_dias is int >= 1
     vbd = cfg.get("ventana_busqueda_dias")
     if not isinstance(vbd, int) or isinstance(vbd, bool) or vbd < 1:
-        raise RuntimeError("[CONFIG] Rule 4: 'ventana_busqueda_dias' must be an integer >= 1")
+        raise RuntimeError(
+            "[CONFIG] Rule 4: 'ventana_busqueda_dias' must be an integer >= 1"
+        )
 
     # Rule 5: servicios is non-empty dict; each entry valid; max 9
     servicios = cfg.get("servicios")
@@ -114,19 +129,32 @@ def _load_and_validate_yaml(path: str) -> dict:
         )
     for svc_key, svc in servicios.items():
         if not isinstance(svc, dict):
-            raise RuntimeError(f"[CONFIG] Rule 5: 'servicios.{svc_key}' must be a mapping")
+            raise RuntimeError(
+                f"[CONFIG] Rule 5: 'servicios.{svc_key}' must be a mapping"
+            )
         if not isinstance(svc.get("nombre"), str) or not svc["nombre"].strip():
-            raise RuntimeError(f"[CONFIG] Rule 5: 'servicios.{svc_key}.nombre' must be a non-empty string")
+            raise RuntimeError(
+                f"[CONFIG] Rule 5: 'servicios.{svc_key}.nombre'"
+                " must be a non-empty string"
+            )
         precio = svc.get("precio")
-        if not isinstance(precio, (int, float)) or isinstance(precio, bool) or precio < 0:
-            raise RuntimeError(f"[CONFIG] Rule 5: 'servicios.{svc_key}.precio' must be a number >= 0")
+        if (not isinstance(precio, (int, float))
+                or isinstance(precio, bool) or precio < 0):
+            raise RuntimeError(
+                f"[CONFIG] Rule 5: 'servicios.{svc_key}.precio'"
+                " must be a number >= 0"
+            )
         dur = svc.get("duracion_min")
         if not isinstance(dur, int) or isinstance(dur, bool) or dur <= 0:
-            raise RuntimeError(f"[CONFIG] Rule 5: 'servicios.{svc_key}.duracion_min' must be an integer > 0")
+            raise RuntimeError(
+                f"[CONFIG] Rule 5: 'servicios.{svc_key}.duracion_min'"
+                " must be an integer > 0"
+            )
         pres = svc.get("presencia_cliente_min")
         if not isinstance(pres, int) or isinstance(pres, bool) or pres < dur:
             raise RuntimeError(
-                f"[CONFIG] Rule 5: 'servicios.{svc_key}.presencia_cliente_min' must be an integer >= duracion_min ({dur})"
+                f"[CONFIG] Rule 5: 'servicios.{svc_key}.presencia_cliente_min'"
+                f" must be an integer >= duracion_min ({dur})"
             )
 
     # Rule 6: lookaheads_dias.citas_cliente and .citas_manuales are int >= 1
@@ -143,14 +171,19 @@ def _load_and_validate_yaml(path: str) -> dict:
     # Rule 7: recordatorio_horas_antes.desde >= 1 and hasta > desde
     rah = cfg.get("recordatorio_horas_antes")
     if not isinstance(rah, dict):
-        raise RuntimeError("[CONFIG] Rule 7: 'recordatorio_horas_antes' must be a mapping")
+        raise RuntimeError(
+            "[CONFIG] Rule 7: 'recordatorio_horas_antes' must be a mapping"
+        )
     desde = rah.get("desde")
     hasta = rah.get("hasta")
     if not isinstance(desde, int) or isinstance(desde, bool) or desde < 1:
-        raise RuntimeError("[CONFIG] Rule 7: 'recordatorio_horas_antes.desde' must be an integer >= 1")
+        raise RuntimeError(
+            "[CONFIG] Rule 7: 'recordatorio_horas_antes.desde' must be an integer >= 1"
+        )
     if not isinstance(hasta, int) or isinstance(hasta, bool) or hasta <= desde:
         raise RuntimeError(
-            f"[CONFIG] Rule 7: 'recordatorio_horas_antes.hasta' must be an integer > desde ({desde})"
+            f"[CONFIG] Rule 7: 'recordatorio_horas_antes.hasta'"
+            f" must be an integer > desde ({desde})"
         )
 
     # Rule 8: envios.recordatorios and envios.confirmaciones are exactly bool
@@ -163,7 +196,8 @@ def _load_and_validate_yaml(path: str) -> dict:
         val = envios[field]
         if not isinstance(val, bool):
             raise RuntimeError(
-                f"[CONFIG] Rule 8: 'envios.{field}' must be a boolean (true/false), got {type(val).__name__!r}"
+                f"[CONFIG] Rule 8: 'envios.{field}' must be a boolean"
+                f" (true/false), got {type(val).__name__!r}"
             )
 
     # Rule 9: evento block (optional — absent or activo not True is always OK)
@@ -172,52 +206,67 @@ def _load_and_validate_yaml(path: str) -> dict:
         # Deep validation only when activo is exactly True
         _ev_nombre = _evento_block.get("nombre")
         if not isinstance(_ev_nombre, str) or not _ev_nombre.strip():
-            raise RuntimeError("[CONFIG] Rule 9: 'evento.nombre' must be a non-empty string when activo is true")
+            raise RuntimeError(
+                "[CONFIG] Rule 9: 'evento.nombre' must be a non-empty string"
+                " when activo is true"
+            )
         _ev_dias = _evento_block.get("dias")
         if not isinstance(_ev_dias, dict) or len(_ev_dias) == 0:
-            raise RuntimeError("[CONFIG] Rule 9: 'evento.dias' must be a non-empty mapping when activo is true")
+            raise RuntimeError(
+                "[CONFIG] Rule 9: 'evento.dias' must be a non-empty mapping"
+                " when activo is true"
+            )
         for iso_key, ranges in _ev_dias.items():
             try:
                 _date.fromisoformat(str(iso_key))
             except ValueError:
                 raise RuntimeError(
-                    f"[CONFIG] Rule 9: 'evento.dias' key '{iso_key}' is not a valid ISO date (YYYY-MM-DD)"
+                    f"[CONFIG] Rule 9: 'evento.dias' key '{iso_key}'"
+                    " is not a valid ISO date (YYYY-MM-DD)"
                 )
             if not isinstance(ranges, list) or len(ranges) == 0:
                 raise RuntimeError(
-                    f"[CONFIG] Rule 9: 'evento.dias.{iso_key}' must be a non-empty list of ranges"
+                    f"[CONFIG] Rule 9: 'evento.dias.{iso_key}'"
+                    " must be a non-empty list of ranges"
                 )
             for rng in ranges:
                 if not (isinstance(rng, list) and len(rng) == 2):
                     raise RuntimeError(
-                        f"[CONFIG] Rule 9: each range in 'evento.dias.{iso_key}' must be a 2-element list [inicio, fin]"
+                        f"[CONFIG] Rule 9: each range in 'evento.dias.{iso_key}'"
+                        " must be a 2-element list [inicio, fin]"
                     )
                 inicio, fin = rng
                 if not (_TIME_RE.match(str(inicio)) and _TIME_RE.match(str(fin))):
                     raise RuntimeError(
-                        f"[CONFIG] Rule 9: range values in 'evento.dias.{iso_key}' must be 'HH:MM' strings"
+                        f"[CONFIG] Rule 9: range values in 'evento.dias.{iso_key}'"
+                        " must be 'HH:MM' strings"
                     )
                 if fin <= inicio:
                     raise RuntimeError(
-                        f"[CONFIG] Rule 9: 'evento.dias.{iso_key}' has range where fin ('{fin}') <= inicio ('{inicio}')"
+                        f"[CONFIG] Rule 9: 'evento.dias.{iso_key}' has range"
+                        f" where fin ('{fin}') <= inicio ('{inicio}')"
                     )
             if len(ranges) > 1 and _ranges_overlap(ranges):
                 raise RuntimeError(
-                    f"[CONFIG] Rule 9: 'evento.dias.{iso_key}' has overlapping time ranges"
+                    f"[CONFIG] Rule 9: 'evento.dias.{iso_key}'"
+                    " has overlapping time ranges"
                 )
         if len(_ev_dias) > 9:
             logging.getLogger(__name__).warning(
                 f"[CONFIG] Rule 9: 'evento.dias' has {len(_ev_dias)} dates; "
-                "more than 9 may not display well in the WhatsApp day picker (max 9 rows)."
+                "more than 9 may not display well in the WhatsApp day picker"
+                " (max 9 rows)."
             )
 
-    # Rule 10: negocio.admin_phone, if present, must be a string of 7-15 digits (no '+', no spaces)
+    # Rule 10: negocio.admin_phone, if present, must be a string of 7-15 digits
     _admin_phone_raw = negocio.get("admin_phone")
     if _admin_phone_raw:  # None and "" both treated as "disabled"
-        if not isinstance(_admin_phone_raw, str) or not re.fullmatch(r"\d{7,15}", _admin_phone_raw):
+        if (not isinstance(_admin_phone_raw, str)
+                or not re.fullmatch(r"\d{7,15}", _admin_phone_raw)):
             raise RuntimeError(
-                "[CONFIG] Rule 10: 'negocio.admin_phone' must be a string of 7-15 digits "
-                "(no '+', no spaces, no dashes) — e.g. '34612345678'"
+                "[CONFIG] Rule 10: 'negocio.admin_phone' must be a string"
+                " of 7-15 digits (no '+', no spaces, no dashes)"
+                " — e.g. '34612345678'"
             )
 
     return cfg
@@ -326,13 +375,18 @@ def validate_config() -> None:
         raise RuntimeError(f"[CONFIG] Missing required env vars: {', '.join(missing)}")
     for svc_key, svc in SERVICIOS.items():
         if svc['duracion_min'] <= 0:
-            raise RuntimeError(f"[CONFIG] SERVICIOS['{svc_key}']['duracion_min'] must be > 0")
+            raise RuntimeError(
+                f"[CONFIG] SERVICIOS['{svc_key}']['duracion_min'] must be > 0"
+            )
         if svc['presencia_cliente_min'] <= 0:
-            raise RuntimeError(f"[CONFIG] SERVICIOS['{svc_key}']['presencia_cliente_min'] must be > 0")
+            raise RuntimeError(
+                f"[CONFIG] SERVICIOS['{svc_key}']['presencia_cliente_min'] must be > 0"
+            )
         if svc['presencia_cliente_min'] < svc['duracion_min']:
             raise RuntimeError(
-                f"[CONFIG] SERVICIOS['{svc_key}']: presencia_cliente_min ({svc['presencia_cliente_min']}) "
-                f"must be >= duracion_min ({svc['duracion_min']})"
+                f"[CONFIG] SERVICIOS['{svc_key}']: presencia_cliente_min"
+                f" ({svc['presencia_cliente_min']}) must be >= duracion_min"
+                f" ({svc['duracion_min']})"
             )
     if not WHATSAPP_APP_SECRET:
         _log.warning(

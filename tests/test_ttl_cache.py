@@ -4,7 +4,6 @@ Unit tests for the TTLCache class in app.services.calendar.caches.
 No external dependencies — pure in-process tests.
 """
 import time
-import pytest
 
 from app.services.calendar.caches import TTLCache
 

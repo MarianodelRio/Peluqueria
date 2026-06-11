@@ -23,7 +23,8 @@ TZ = pytz.timezone(TIMEZONE)
 
 
 def _invalidate_slot_cache(d: date) -> None:
-    """Remove all cache entries for a given date (all durations), including evt_* keys."""
+    """Remove all cache entries for a given date (all durations),
+    including evt_* keys."""
     date_str = d.isoformat()
     slot_cache.invalidate_matching(
         lambda k: k.startswith(date_str) or k.startswith(f"evt_{date_str}")
@@ -34,7 +35,9 @@ def _invalidate_citas_cache(phone: Optional[str]) -> None:
     citas_cache.invalidate(phone)
 
 
-def crear_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict) -> Optional[str]:
+def crear_cita(
+    d: date, hora: str, nombre: str, telefono: str, servicio: dict,
+) -> Optional[str]:
     """
     Create appointment event in Google Calendar.
     Returns event ID on success, None on failure.
@@ -61,7 +64,9 @@ def crear_cita(d: date, hora: str, nombre: str, telefono: str, servicio: dict) -
     }
 
     try:
-        created = svc.events().insert(calendarId=GOOGLE_CALENDAR_ID, body=event).execute(num_retries=2)
+        created = svc.events().insert(
+            calendarId=GOOGLE_CALENDAR_ID, body=event
+        ).execute(num_retries=2)
         logger.info(
             f"[CAL] Created appointment (confirmed): {nombre} {mask_phone(telefono)} "
             f"{d} {hora} event_id={created['id']}"
@@ -79,11 +84,15 @@ def confirmar_cita(event_id: str) -> bool:
     """Update appointment status to 'confirmada'."""
     svc = client.get_service()
     try:
-        event = svc.events().get(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id).execute(num_retries=2)
+        event = svc.events().get(
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id
+        ).execute(num_retries=2)
         desc = event.get('description', '') or ''
         desc = set_field(desc, 'Estado', 'confirmada')
         event['description'] = desc
-        svc.events().update(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event).execute(num_retries=2)
+        svc.events().update(
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event
+        ).execute(num_retries=2)
         logger.info(f"[CAL] Confirmed appointment event_id={event_id}")
         _invalidate_citas_cache(parse_tel(desc))
         return True
@@ -100,13 +109,16 @@ def cancelar_cita(event_id: str) -> bool:
             calendarId=GOOGLE_CALENDAR_ID,
             eventId=event_id
         ).execute(num_retries=2)
-        start_str = event.get('start', {}).get('dateTime') or event.get('start', {}).get('date')
+        start_raw = event.get('start', {})
+        start_str = start_raw.get('dateTime') or start_raw.get('date')
         try:
             event_date = datetime.fromisoformat(start_str).astimezone(TZ).date()
         except Exception:
             event_date = None
 
-        svc.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id).execute(num_retries=2)
+        svc.events().delete(
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id
+        ).execute(num_retries=2)
         logger.info(f"[CAL] Deleted appointment event_id={event_id}")
         metrics.inc('bookings_cancelled')
         if event_date:
@@ -125,12 +137,16 @@ def marcar_manual_confirmado(event_id: str) -> bool:
     """
     svc = client.get_service()
     try:
-        event = svc.events().get(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id).execute(num_retries=2)
+        event = svc.events().get(
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id
+        ).execute(num_retries=2)
         desc = event.get('description', '') or ''
         desc = set_field(desc, 'Estado', 'confirmada')
         desc = set_field(desc, 'Recordatorio', 'no')
         event['description'] = desc
-        svc.events().update(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event).execute(num_retries=2)
+        svc.events().update(
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event
+        ).execute(num_retries=2)
         logger.info(f"[CAL] Marked manual event confirmed: {event_id}")
         _invalidate_citas_cache(parse_tel(desc))
         return True
@@ -143,11 +159,15 @@ def marcar_recordatorio_enviado(event_id: str) -> bool:
     """Mark event Recordatorio: sí after sending reminder."""
     svc = client.get_service()
     try:
-        event = svc.events().get(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id).execute(num_retries=2)
+        event = svc.events().get(
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id
+        ).execute(num_retries=2)
         desc = event.get('description', '') or ''
         desc = set_field(desc, 'Recordatorio', 'sí')
         event['description'] = desc
-        svc.events().update(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event).execute(num_retries=2)
+        svc.events().update(
+            calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event
+        ).execute(num_retries=2)
         logger.info(f"[CAL] Marked reminder sent: {event_id}")
         return True
     except Exception as e:

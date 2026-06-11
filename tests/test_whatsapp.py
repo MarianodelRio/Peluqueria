@@ -47,7 +47,11 @@ class TestSendTextMessage:
     def test_returns_false_on_http_error(self, mock_httpx_client):
         from app.services.whatsapp import send_text_message
         mock_httpx_client.post.return_value.raise_for_status.side_effect = (
-            httpx.HTTPStatusError("err", request=MagicMock(), response=MagicMock(status_code=400, text="bad"))
+            httpx.HTTPStatusError(
+                "err",
+                request=MagicMock(),
+                response=MagicMock(status_code=400, text="bad"),
+            )
         )
         assert send_text_message("34600000001", "Hola") is False
 
@@ -73,7 +77,10 @@ class TestSendInteractive:
 
     def test_payload_merged_into_body(self, mock_httpx_client):
         from app.services.whatsapp import send_interactive
-        payload = {"type": "interactive", "interactive": {"type": "button", "body": {"text": "Hola"}}}
+        payload = {
+            "type": "interactive",
+            "interactive": {"type": "button", "body": {"text": "Hola"}},
+        }
         send_interactive("34600000001", payload)
         body = get_posted_body(mock_httpx_client)
         assert body["type"] == "interactive"

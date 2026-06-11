@@ -62,7 +62,9 @@ def compute_slots(
                 break
             elif cfg['type'] == 'horario' and special_schedule is None:
                 special_schedule = cfg
-                logger.info(f"[CAL] Special schedule on {d}: {cfg['start']}-{cfg['end']}")
+                logger.info(
+                    f"[CAL] Special schedule on {d}: {cfg['start']}-{cfg['end']}"
+                )
         else:
             blocking_events.append({'start': ev['start'], 'end': ev['end']})
 
@@ -79,7 +81,10 @@ def compute_slots(
         base_slots = []
         for start_str, end_str in event_horario:
             base_slots.extend(
-                generate_slots(start_str, end_str, presencia_cliente_min, step_min=CITA_DURACION_MIN)
+                generate_slots(
+                    start_str, end_str, presencia_cliente_min,
+                    step_min=CITA_DURACION_MIN,
+                )
             )
     else:
         base_slots = get_base_slots_for_day(d, presencia_cliente_min)

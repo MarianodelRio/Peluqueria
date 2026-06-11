@@ -9,7 +9,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Variables — edita esta línea según tu caso ─────────────────────────────
-NGROK_DOMAIN := tu-dominio.ngrok-free.app
+NGROK_DOMAIN := unpermanently-repairable-devon.ngrok-free.dev
 
 # ── Variables automáticas — no tocar ──────────────────────────────────────
 USER        := $(shell whoami)
@@ -18,7 +18,76 @@ VENV        := $(APP_DIR)/venv
 PYTHON      := $(VENV)/bin/python
 PIP         := $(VENV)/bin/pip
 UVICORN     := $(VENV)/bin/uvicorn
+PYTEST      := $(shell test -x $(VENV)/bin/pytest && echo $(VENV)/bin/pytest || echo pytest)
+RUFF        := $(shell test -x $(VENV)/bin/ruff  && echo $(VENV)/bin/ruff  || echo ruff)
+MYPY        := $(shell test -x $(VENV)/bin/mypy  && echo $(VENV)/bin/mypy  || echo mypy)
 LOG_DIR     := /var/log/peluqueria
+
+define PELUQUERIA_SERVICE
+[Unit]
+Description=Peluquería Citas — FastAPI
+After=network.target
+
+[Service]
+Type=simple
+User=$(USER)
+WorkingDirectory=$(APP_DIR)
+EnvironmentFile=$(APP_DIR)/.env
+ExecStart=$(UVICORN) app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=peluqueria
+
+[Install]
+WantedBy=multi-user.target
+endef
+export PELUQUERIA_SERVICE
+
+define NGROK_SERVICE
+[Unit]
+Description=ngrok tunnel — Peluquería
+After=network.target peluqueria.service
+Requires=peluqueria.service
+
+[Service]
+Type=simple
+User=$(USER)
+ExecStart=/usr/local/bin/ngrok http --domain=$(NGROK_DOMAIN) 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=perok
+
+[Install]
+WantedBy=multi-user.target
+endef
+export NGROK_SERVICE
+
+define RESTART_SERVICE
+[Unit]
+Description=Reinicio nocturno del bot
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart peluqueria
+endef
+export RESTART_SERVICE
+
+define RESTART_TIMER
+[Unit]
+Description=Reinicia el bot cada noche a las 4:00 AM
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+endef
+export RESTART_TIMER
 
 .DEFAULT_GOAL := help
 
@@ -31,21 +100,26 @@ help:
 	@echo ""
 	@echo "  Peluquería Citas — comandos disponibles"
 	@echo ""
-	@echo "  PRIMERA INSTALACIÓN"
-	@echo "    make all            Instalación completa con ngrok"
+	@echo "  PRIMERA INSTALACIÓN (en orden)"
+	@echo "    make setup      Instala dependencias del sistema"
+	@echo "    make install    Crea entorno virtual e instala Python deps"
+	@echo "    make services   Registra servicios systemd y watchdog cron"
+	@echo "    make start      Arranca todos los servicios"
 	@echo ""
 	@echo "  OPERACIÓN DIARIA"
-	@echo "    make update         git pull + pip install + restart"
-	@echo "    make status         Estado de todos los servicios"
-	@echo "    make health         Comprueba /health del bot"
-	@echo "    make logs           Logs del bot en tiempo real"
+	@echo "    make update     Descarga cambios de código (git pull + pip)"
+	@echo "    make test       Ejecuta la suite de tests (pytest)"
+	@echo "    make start      Arranca o reinicia todos los servicios"
+	@echo "    make status     Estado de todos los servicios"
+	@echo "    make health     Comprueba /health del bot"
+	@echo "    make logs       Logs del bot en tiempo real"
 	@echo "    make logs-ngrok     Logs de ngrok en tiempo real"
 	@echo "    make logs-watchdog  Logs del watchdog"
 	@echo ""
-	@echo "  CONTROL DE SERVICIOS"
-	@echo "    make start          Arranca todos los servicios"
-	@echo "    make stop           Para todos los servicios"
-	@echo "    make restart        Reinicia todos los servicios"
+	@echo "  UTILIDADES"
+	@echo "    make lint       Ejecuta ruff y mypy"
+	@echo "    make qr         Genera el QR de WhatsApp → qr_cita.png"
+	@echo "    make stop       Para todos los servicios"
 	@echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -53,7 +127,7 @@ help:
 # ══════════════════════════════════════════════════════════════════════════════
 
 .PHONY: all
-all: _check-env setup install _services-ngrok watchdog
+all: _check-env setup install services start
 	@echo ""
 	@echo "  ✓ Instalación completa (modo ngrok)"
 	@echo "  Comprueba el estado con: make status"
@@ -100,10 +174,10 @@ install:
 	$(PIP) install -r $(APP_DIR)/requirements.txt -q
 	@echo "   ✓ install completado"
 
-# ── Servicios systemd — modo ngrok ────────────────────────────────────────
+# ── Servicios systemd ─────────────────────────────────────────────────────
 
-.PHONY: _services-ngrok
-_services-ngrok: _service-uvicorn _service-ngrok _service-restart
+.PHONY: services
+services: _check-env _service-uvicorn _service-ngrok _service-restart _watchdog-cron
 	@echo "→ Configurando token de ngrok..."
 	@NGROK_TOKEN=$$(grep -E '^NGROK_TOKEN=' $(APP_DIR)/.env | cut -d= -f2); \
 	if [ -n "$$NGROK_TOKEN" ]; then \
@@ -114,88 +188,30 @@ _services-ngrok: _service-uvicorn _service-ngrok _service-restart
 	fi
 	sudo systemctl daemon-reload
 	sudo systemctl enable peluqueria ngrok peluqueria-restart.timer
-	sudo systemctl start peluqueria
-	@sleep 3
-	sudo systemctl start ngrok
-	sudo systemctl start peluqueria-restart.timer
-	@echo "   ✓ servicios ngrok activos"
+	@echo "   ✓ servicios systemd instalados — ejecuta 'make start' para arrancarlos"
 
 # ── Generadores de ficheros systemd ───────────────────────────────────────
 
 .PHONY: _service-uvicorn
 _service-uvicorn:
 	@echo "→ Creando peluqueria.service..."
-	@sudo tee /etc/systemd/system/peluqueria.service > /dev/null <<EOF
-[Unit]
-Description=Peluquería Citas — FastAPI
-After=network.target
-
-[Service]
-Type=simple
-User=$(USER)
-WorkingDirectory=$(APP_DIR)
-EnvironmentFile=$(APP_DIR)/.env
-ExecStart=$(UVICORN) app.main:app --host 127.0.0.1 --port 8000 --workers 1
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=peluqueria
-
-[Install]
-WantedBy=multi-user.target
-EOF
+	@printf '%s\n' "$$PELUQUERIA_SERVICE" | sudo tee /etc/systemd/system/peluqueria.service > /dev/null
 
 .PHONY: _service-ngrok
 _service-ngrok:
 	@echo "→ Creando ngrok.service..."
-	@sudo tee /etc/systemd/system/ngrok.service > /dev/null <<EOF
-[Unit]
-Description=ngrok tunnel — Peluquería
-After=network.target peluqueria.service
-Requires=peluqueria.service
-
-[Service]
-Type=simple
-User=$(USER)
-ExecStart=/usr/local/bin/ngrok http --domain=$(NGROK_DOMAIN) 8000
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=perok
-
-[Install]
-WantedBy=multi-user.target
-EOF
+	@printf '%s\n' "$$NGROK_SERVICE" | sudo tee /etc/systemd/system/ngrok.service > /dev/null
 
 .PHONY: _service-restart
 _service-restart:
 	@echo "→ Creando peluqueria-restart.service y timer..."
-	@sudo tee /etc/systemd/system/peluqueria-restart.service > /dev/null <<EOF
-[Unit]
-Description=Reinicio nocturno del bot
-
-[Service]
-Type=oneshot
-ExecStart=/bin/systemctl restart peluqueria
-EOF
-	@sudo tee /etc/systemd/system/peluqueria-restart.timer > /dev/null <<EOF
-[Unit]
-Description=Reinicia el bot cada noche a las 4:00 AM
-
-[Timer]
-OnCalendar=*-*-* 04:00:00
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
+	@printf '%s\n' "$$RESTART_SERVICE" | sudo tee /etc/systemd/system/peluqueria-restart.service > /dev/null
+	@printf '%s\n' "$$RESTART_TIMER" | sudo tee /etc/systemd/system/peluqueria-restart.timer > /dev/null
 
 # ── Watchdog cron ──────────────────────────────────────────────────────────
 
-.PHONY: watchdog
-watchdog:
+.PHONY: _watchdog-cron
+_watchdog-cron:
 	@echo "→ Configurando cron del watchdog..."
 	@CRON_LINE="*/5 * * * * cd $(APP_DIR) && $(PYTHON) watchdog.py >> $(LOG_DIR)/watchdog.log 2>&1"; \
 	( crontab -l 2>/dev/null | grep -v watchdog.py; echo "$$CRON_LINE" ) | crontab -
@@ -210,11 +226,7 @@ update:
 	@echo "→ Desplegando cambios..."
 	cd $(APP_DIR) && git pull
 	$(PIP) install -r $(APP_DIR)/requirements.txt -q
-	sudo systemctl restart peluqueria
-	@sleep 2
-	@sudo systemctl is-active --quiet peluqueria \
-		&& echo "   ✓ bot reiniciado correctamente" \
-		|| echo "   ✗ ERROR: el bot no arrancó — ejecuta: make logs"
+	@echo "   ✓ actualización completada — ejecuta 'make start' si necesitas reiniciar"
 
 .PHONY: status
 status:
@@ -244,26 +256,43 @@ logs-watchdog:
 	tail -f $(LOG_DIR)/watchdog.log
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  CONTROL DE SERVICIOS
+#  UTILIDADES
 # ══════════════════════════════════════════════════════════════════════════════
+
+.PHONY: test
+test:
+	$(PYTEST) -q
+
+.PHONY: lint
+lint:
+	$(RUFF) check .
+	PYTHONPATH=. $(MYPY) app
+
+.PHONY: qr
+qr:
+	$(PYTHON) $(APP_DIR)/generar_qr.py
+	@echo "   ✓ QR guardado en qr_cita.png"
 
 .PHONY: start
 start:
-	sudo systemctl start peluqueria
+	@if sudo systemctl is-active --quiet peluqueria; then \
+		sudo systemctl restart peluqueria; \
+	else \
+		sudo systemctl start peluqueria; \
+	fi
 	@sleep 2
-	sudo systemctl start ngrok
-	@echo "   ✓ servicios arrancados"
+	@if sudo systemctl is-active --quiet ngrok; then \
+		sudo systemctl restart ngrok; \
+	else \
+		sudo systemctl start ngrok; \
+	fi
+	sudo systemctl start peluqueria-restart.timer
+	@sudo systemctl is-active --quiet peluqueria \
+		&& echo "   ✓ servicios arrancados" \
+		|| echo "   ✗ ERROR: el bot no arrancó — ejecuta: make logs"
 
 .PHONY: stop
 stop:
 	sudo systemctl stop peluqueria
 	sudo systemctl stop ngrok
 	@echo "   ✓ servicios parados"
-
-.PHONY: restart
-restart:
-	sudo systemctl restart peluqueria
-	@sleep 2
-	sudo systemctl restart ngrok
-	@echo "   ✓ servicios reiniciados"
-

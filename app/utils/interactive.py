@@ -9,7 +9,14 @@ WhatsApp limits:
 """
 from datetime import date
 from typing import List, Optional
-from app.config import INTERACTIVE_FOOTER, CONTACT_PHONE, SERVICIOS, BUSINESS_NAME, EVENTO_ACTIVO, EVENTO_NOMBRE
+from app.config import (
+    INTERACTIVE_FOOTER,
+    CONTACT_PHONE,
+    SERVICIOS,
+    BUSINESS_NAME,
+    EVENTO_ACTIVO,
+    EVENTO_NOMBRE,
+)
 from app.utils.slots import format_date_es
 
 
@@ -76,7 +83,10 @@ def build_main_menu() -> dict:
     - EVENTO_ACTIVO=True:            interactive list with 4 rows including
                                      menu_book_event for the special event.
     """
-    body = "💈 ¡Bienvenido!\n¿En qué podemos ayudarte hoy?\n\n📞 Para otras consultas, llámanos al " + CONTACT_PHONE
+    body = (
+        "💈 ¡Bienvenido!\n¿En qué podemos ayudarte hoy?\n\n"
+        f"📞 Para otras consultas, llámanos al {CONTACT_PHONE}"
+    )
     header = f"✂️ {BUSINESS_NAME}"
 
     if not EVENTO_ACTIVO:
@@ -85,7 +95,7 @@ def build_main_menu() -> dict:
             body=body,
             buttons=[
                 _button("menu_book",   "📅 Pedir cita"),
-                _button("menu_view",   "📋 Mis citas"),
+                _button("menu_move",   "📦 Mover cita"),
                 _button("menu_cancel", "❌ Cancelar cita"),
             ],
         )
@@ -94,7 +104,7 @@ def build_main_menu() -> dict:
     event_label = _trunc(f"Cita {EVENTO_NOMBRE}", 24)
     rows = [
         _row("menu_book",       "📅 Pedir cita"),
-        _row("menu_view",       "📋 Mis citas"),
+        _row("menu_move",       "📦 Mover cita"),
         _row("menu_cancel",     "❌ Cancelar cita"),
         _row("menu_book_event", event_label),
     ]
@@ -139,7 +149,9 @@ def build_days_list(days: List[date]) -> dict:
 
 def build_back_to_menu_message(body: str) -> dict:
     """Single-button interactive message with a 'back to menu' button."""
-    return _interactive_buttons(body=body, buttons=[_button("back_to_menu", "↩️ Volver al menú")])
+    return _interactive_buttons(
+        body=body, buttons=[_button("back_to_menu", "↩️ Volver al menú")]
+    )
 
 
 def build_hours_list(d: date, slots: List[str], came_from_period: bool = False) -> dict:
@@ -149,7 +161,10 @@ def build_hours_list(d: date, slots: List[str], came_from_period: bool = False) 
     came_from_period=False: caps slots at 9, appends back_to_day    (10 rows max).
     """
     capped = slots[:9]
-    rows = [_row(f"hour_{d.isoformat()}_{s.replace(':', '')}", f"🕒 {s}") for s in capped]
+    rows = [
+        _row(f"hour_{d.isoformat()}_{s.replace(':', '')}", f"🕒 {s}")
+        for s in capped
+    ]
     if came_from_period:
         rows.append(_row("back_to_period", "↩️ Cambiar turno"))
     else:
@@ -227,6 +242,36 @@ def build_cancel_select(citas: list) -> dict:
     return _interactive_list(
         header="❌ Cancelar cita",
         body="¿Qué cita quieres cancelar?",
+        button_label="Ver citas",
+        sections=[_section("Tus citas", rows)],
+    )
+
+
+def build_move_select(citas: list) -> dict:
+    """
+    List of future appointments to choose which to move.
+    Flat list, max 9 appointments + 1 nav = 10 rows.
+    """
+    if not citas:
+        return _interactive_buttons(
+            body="No tienes citas para mover.",
+            buttons=[_button("back_to_menu", "↩️ Volver al menú")],
+        )
+
+    rows = []
+    for c in citas[:9]:  # hard cap at 9 to leave room for back button
+        d = c['start'].date()
+        hora = c['start'].strftime('%H:%M')
+        rows.append(_row(
+            f"move_appt_{c['id']}",
+            _trunc(f"📅 {format_date_es(d)}", 24),
+            f"🕒 {hora}",
+        ))
+    rows.append(_row("back_to_menu", "↩️ Volver al menú"))
+
+    return _interactive_list(
+        header="📦 Mover cita",
+        body="¿Qué cita quieres mover?",
         button_label="Ver citas",
         sections=[_section("Tus citas", rows)],
     )

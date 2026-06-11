@@ -8,7 +8,7 @@ import pytest
 import threading
 import time
 from datetime import date, datetime, timedelta
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
 import pytz
 
 TZ = pytz.timezone("Europe/Madrid")
@@ -45,6 +45,7 @@ def mock_cal():
         cal.reservar_cita.return_value = ("evt_new", None)
         cal.cancelar_cita.return_value = True
         cal.confirmar_cita.return_value = True
+        cal.mover_cita.return_value = ("evt_new", None)
         yield cal
 
 
@@ -114,7 +115,10 @@ class TestBookSelectService:
     def test_service_corte_transitions_to_select_day(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
-        mock_cal.get_slots_disponibles_for_days.return_value = {date(2026, 3, 23): ["10:00", "10:30"], date(2026, 3, 24): ["10:00", "10:30"]}
+        mock_cal.get_slots_disponibles_for_days.return_value = {
+            date(2026, 3, 23): ["10:00", "10:30"],
+            date(2026, 3, 24): ["10:00", "10:30"],
+        }
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23), date(2026, 3, 24)]):
             send(interactive_id="service_corte")
@@ -124,7 +128,9 @@ class TestBookSelectService:
 
     def test_service_mechas_has_60_min_duration(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
-        mock_cal.get_slots_disponibles_for_days.return_value = {date(2026, 3, 23): ["10:00"]}
+        mock_cal.get_slots_disponibles_for_days.return_value = {
+            date(2026, 3, 23): ["10:00"],
+        }
         with patch("app.handlers.conversation.get_next_days",
                    return_value=[date(2026, 3, 23)]):
             send(interactive_id="service_mechas")
@@ -160,7 +166,9 @@ class TestBookSelectDay:
         import app.handlers.conversation as conv
         self.setup_state()
         # Slots covering both morning and afternoon
-        mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30", "16:00", "16:30"]
+        mock_cal.get_slots_disponibles.return_value = [
+            "10:00", "10:30", "16:00", "16:30"
+        ]
         send(interactive_id="day_2026-03-23")
         state = conv._get(PHONE)
         assert state.step == conv.BOOK_SELECT_PERIOD
@@ -198,7 +206,8 @@ class TestBookSelectDay:
         mock_wa.send_text_message.assert_called()
 
     def test_get_slots_called_with_service_duracion_min(self, mock_wa, mock_cal):
-        """get_slots_disponibles is called with the service's duracion_min (30 for corte)."""
+        """get_slots_disponibles is called with the service's duracion_min
+        (30 for corte)."""
         from app.config import SERVICIOS
         self.setup_state()
         mock_cal.get_slots_disponibles.return_value = ["10:00", "10:30"]
@@ -212,7 +221,6 @@ class TestBookSelectDay:
 
     def test_mechas_service_uses_60_min_duration(self, mock_wa, mock_cal):
         """get_slots_disponibles is called with duracion_min=60 for mechas service."""
-        import app.handlers.conversation as conv
         from app.config import SERVICIOS
         state = self.setup_state()
         state.selected_service = SERVICIOS["mechas"]
@@ -396,7 +404,6 @@ class TestBookConfirm:
         assert conv._get(PHONE).step == conv.BOOK_SELECT_DAY
 
     def test_confirm_api_error_shows_message(self, mock_wa, mock_cal):
-        import app.handlers.conversation as conv
         self.setup_state()
         mock_cal.reservar_cita.return_value = (None, "error")
         send(text="Ana")
@@ -485,7 +492,8 @@ class TestReminderResponses:
         send(interactive_id="reminder_confirm_evt_xyz")
         mock_cal.confirmar_cita.assert_called_once_with("evt_xyz")
 
-    def test_reminder_confirm_uses_get_event_by_id_not_full_list(self, mock_wa, mock_cal):
+    def test_reminder_confirm_uses_get_event_by_id_not_full_list(
+            self, mock_wa, mock_cal):
         """_handle_reminder_response calls get_event_by_id, not get_citas_futuras."""
         mock_cal.get_event_by_id.return_value = {
             "id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))
@@ -494,7 +502,8 @@ class TestReminderResponses:
         mock_cal.get_event_by_id.assert_called_once_with("evt1", PHONE)
         mock_cal.get_citas_futuras.assert_not_called()
 
-    def test_reminder_cancel_uses_get_event_by_id_not_full_list(self, mock_wa, mock_cal):
+    def test_reminder_cancel_uses_get_event_by_id_not_full_list(
+            self, mock_wa, mock_cal):
         """_handle_reminder_response calls get_event_by_id, not get_citas_futuras."""
         mock_cal.get_event_by_id.return_value = {
             "id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))
@@ -504,7 +513,8 @@ class TestReminderResponses:
         mock_cal.get_event_by_id.assert_called_once_with("evt1", PHONE)
         mock_cal.get_citas_futuras.assert_not_called()
 
-    def test_reminder_confirm_for_other_phone_returns_not_found(self, mock_wa, mock_cal):
+    def test_reminder_confirm_for_other_phone_returns_not_found(
+            self, mock_wa, mock_cal):
         """get_event_by_id returning None (phone mismatch) is treated as not found."""
         mock_cal.get_event_by_id.return_value = None
         send(interactive_id="reminder_confirm_evt1")
@@ -570,7 +580,8 @@ class TestCleanExpiredStates:
 # ── Mechas conversation flow ───────────────────────────────────────────────────
 
 class TestMechasConversationFlow:
-    """Validate that the state machine stores calendar-layer slots correctly for mechas."""
+    """Validate that the state machine stores calendar-layer slots
+    correctly for mechas."""
 
     def _setup_day_state(self, servicio_key):
         import app.handlers.conversation as conv
@@ -582,10 +593,12 @@ class TestMechasConversationFlow:
         return state
 
     def test_book_mechas_afternoon_slots_respect_presencia(self, mock_wa, mock_cal):
-        """After selecting a day for mechas, only the 3 pre-filtered slots are stored."""
+        """After selecting a day for mechas, only the 3 pre-filtered
+        slots are stored."""
         import app.handlers.conversation as conv
         self._setup_day_state("mechas")
-        # Calendar layer already applied presencia_cliente_min filtering — only 3 slots remain
+        # Calendar layer already applied presencia_cliente_min filtering
+        # — only 3 slots remain
         mock_cal.get_slots_disponibles.return_value = ["17:00", "17:30", "18:00"]
         send(interactive_id="day_2026-03-24")
         state = conv._get(PHONE)
@@ -597,7 +610,8 @@ class TestMechasConversationFlow:
         assert len(state.available_slots) == 3
 
     def test_book_corte_afternoon_offers_more_slots(self, mock_wa, mock_cal):
-        """After selecting a day for corte (no presencia restriction), all 8 slots are stored."""
+        """After selecting a day for corte (no presencia restriction),
+        all 8 slots are stored."""
         import app.handlers.conversation as conv
         self._setup_day_state("corte")
         mock_cal.get_slots_disponibles.return_value = [
@@ -619,7 +633,6 @@ class TestPerPhoneLock:
         Two threads send to the same phone simultaneously.
         With the per-phone lock, state transitions must not interleave.
         """
-        import app.handlers.conversation as conv
         results = []
         barrier = threading.Barrier(2)
 
@@ -630,8 +643,10 @@ class TestPerPhoneLock:
 
         t1 = threading.Thread(target=worker, args=("menu_view",))
         t2 = threading.Thread(target=worker, args=("menu_book",))
-        t1.start(); t2.start()
-        t1.join(); t2.join()
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
         # Both must have completed without raising
         assert len(results) == 2
@@ -641,9 +656,9 @@ class TestPerPhoneLock:
 
 class TestBookSelectServiceRangeFetch:
     def test_handle_book_select_service_uses_range_call(self, mock_wa, mock_cal):
-        """After service-pick, get_slots_disponibles_for_days is called once and get_slots_disponibles is not called."""
+        """After service-pick, get_slots_disponibles_for_days is called
+        once and get_slots_disponibles is not called."""
         import app.handlers.conversation as conv
-        from app.config import SERVICIOS
 
         today = date(2026, 5, 12)
         days = [today + timedelta(days=i) for i in range(15)]
@@ -661,10 +676,11 @@ class TestBookSelectServiceRangeFetch:
         assert mock_cal.get_slots_disponibles_for_days.call_count == 1
         assert mock_cal.get_slots_disponibles.call_count == 0
 
-    def test_handle_book_select_service_then_select_day_no_extra_range_call(self, mock_wa, mock_cal):
-        """After service-pick then day-pick, for_days is called only once (at service step)."""
+    def test_handle_book_select_service_then_select_day_no_extra_range_call(
+            self, mock_wa, mock_cal):
+        """After service-pick then day-pick, for_days is called only
+        once (at service step)."""
         import app.handlers.conversation as conv
-        from app.config import SERVICIOS
 
         today = date(2026, 5, 12)
         days = [today + timedelta(days=i) for i in range(15)]
@@ -703,7 +719,8 @@ class TestEventBookingFlow:
         assert state.step == conv.MENU
 
     def test_menu_book_event_active_sets_mode_evento(self, mock_wa, mock_cal):
-        """menu_book_event when active sets mode='evento' and goes to BOOK_SELECT_SERVICE."""
+        """menu_book_event when active sets mode='evento' and goes
+        to BOOK_SELECT_SERVICE."""
         import app.handlers.conversation as conv
         with patch("app.handlers.conversation.EVENTO_ACTIVO", True):
             send(interactive_id="menu_book_event")
@@ -719,16 +736,20 @@ class TestEventBookingFlow:
         assert state.mode == 'normal'
 
     def test_event_service_select_uses_get_event_days(self, mock_wa, mock_cal):
-        """When mode='evento', _handle_book_select_service calls get_event_days (not get_next_days)."""
+        """When mode='evento', _handle_book_select_service calls
+        get_event_days (not get_next_days)."""
         import app.handlers.conversation as conv
         event_day = date(2099, 12, 25)
-        mock_cal.get_slots_disponibles_for_days.return_value = {event_day: ["10:00", "11:00"]}
+        mock_cal.get_slots_disponibles_for_days.return_value = {
+            event_day: ["10:00", "11:00"]
+        }
 
         state = conv._get(PHONE)
         state.step = conv.BOOK_SELECT_SERVICE
         state.mode = 'evento'
 
-        with patch("app.handlers.conversation.get_event_days", return_value=[event_day]) as mock_ged, \
+        with patch("app.handlers.conversation.get_event_days",
+                   return_value=[event_day]) as mock_ged, \
              patch("app.handlers.conversation.get_next_days") as mock_gnd:
             send(interactive_id="service_corte")
 
@@ -749,8 +770,10 @@ class TestEventBookingFlow:
         text_call = mock_wa.send_text_message.call_args[0][1]
         assert "evento" in text_call.lower()
 
-    def test_event_select_day_calls_get_slots_disponibles_evento(self, mock_wa, mock_cal):
-        """When mode='evento', selecting a day calls get_slots_disponibles with mode='evento'."""
+    def test_event_select_day_calls_get_slots_disponibles_evento(
+            self, mock_wa, mock_cal):
+        """When mode='evento', selecting a day calls get_slots_disponibles
+        with mode='evento'."""
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
         event_day = date(2099, 12, 25)
@@ -769,8 +792,10 @@ class TestEventBookingFlow:
         args, kwargs = call_kwargs
         assert kwargs.get('mode') == 'evento'
 
-    def test_event_flow_slot_taken_uses_get_slots_disponibles_evento(self, mock_wa, mock_cal):
-        """When mode='evento' and slot_taken, alternatives fetched via get_slots_disponibles with mode='evento'."""
+    def test_event_flow_slot_taken_uses_get_slots_disponibles_evento(
+            self, mock_wa, mock_cal):
+        """When mode='evento' and slot_taken, alternatives fetched
+        via get_slots_disponibles with mode='evento'."""
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
         event_day = date(2099, 12, 25)
@@ -804,3 +829,205 @@ class TestEventBookingFlow:
         # State was cleared; new state would have default mode='normal'
         new_state = conv._get(PHONE)
         assert new_state.mode == 'normal'
+
+
+# ── Move flow ──────────────────────────────────────────────────────────────────
+
+class TestMoveFlow:
+    _DEFAULT_DESC = (
+        "Nombre: Ana García\nTelefono: +34600000001\n"
+        "Servicio: corte\nEstado: confirmada\nRecordatorio: no"
+    )
+
+    def make_cita(self, event_id="evt1", description=None):
+        return {
+            "id": event_id,
+            "start": TZ.localize(datetime(2026, 3, 25, 10, 0)),
+            "description": (
+                description if description is not None else self._DEFAULT_DESC
+            ),
+        }
+
+    def test_menu_move_no_citas_returns_to_menu(self, mock_wa, mock_cal):
+        mock_cal.get_citas_futuras.return_value = []
+        send(interactive_id="menu_move")
+        mock_wa.send_text_message.assert_called()
+        import app.handlers.conversation as conv
+        assert conv._states.get(PHONE) is None
+
+    def test_menu_move_with_citas_transitions_to_move_select(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        mock_cal.get_citas_futuras.return_value = [self.make_cita()]
+        send(interactive_id="menu_move")
+        state = conv._get(PHONE)
+        assert state.step == conv.MOVE_SELECT_CITA
+        mock_wa.send_interactive.assert_called()
+
+    def test_move_select_valid_event_saves_source_and_goes_to_service(
+        self, mock_wa, mock_cal
+    ):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.MOVE_SELECT_CITA
+        state.move_citas = [self.make_cita("evt1")]
+        send(interactive_id="move_appt_evt1")
+        state = conv._get(PHONE)
+        assert state.move_source_event_id == "evt1"
+        assert state.step == conv.BOOK_SELECT_SERVICE
+
+    def test_move_select_valid_event_uses_nombre_from_description(
+        self, mock_wa, mock_cal
+    ):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.MOVE_SELECT_CITA
+        state.move_citas = [self.make_cita("evt1")]
+        send(interactive_id="move_appt_evt1")
+        state = conv._get(PHONE)
+        assert state.move_source_nombre == "Ana García"
+
+    def test_move_select_nombre_fallback_when_missing(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.MOVE_SELECT_CITA
+        # Cita with no Nombre field in description
+        state.move_citas = [
+            self.make_cita("evt1", description="Telefono: +34600000001")
+        ]
+        send(interactive_id="move_appt_evt1")
+        state = conv._get(PHONE)
+        assert state.move_source_nombre == "Cliente"
+
+    def test_move_select_unknown_id_resets_menu(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.MOVE_SELECT_CITA
+        state.move_citas = [self.make_cita("evt1")]
+        send(interactive_id="move_appt_evt_unknown")
+        assert conv._states.get(PHONE) is None
+        mock_wa.send_text_message.assert_called()
+
+    def test_move_select_invalid_prefix_resets_menu(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.MOVE_SELECT_CITA
+        state.move_citas = [self.make_cita("evt1")]
+        send(interactive_id="cancel_appt_evt1")
+        assert conv._states.get(PHONE) is None
+
+    def test_move_hour_select_calls_execute_mover_not_enter_name(
+        self, mock_wa, mock_cal
+    ):
+        """When move_source_event_id is set, selecting an hour calls mover_cita,
+        not enter_name."""
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        mock_cal.mover_cita.return_value = ("new_evt", None)
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_HOUR
+        state.selected_date = date(2026, 3, 23)
+        state.available_slots = ["10:00", "10:30"]
+        state.available_days = [date(2026, 3, 23)]
+        state.selected_service = SERVICIOS["corte"]
+        state.move_source_event_id = "evt_old"
+        state.move_source_nombre = "Ana García"
+
+        send(interactive_id="hour_2026-03-23_1000")
+
+        # State should be cleared (move succeeded) — not at BOOK_ENTER_NAME
+        assert conv._states.get(PHONE) is None
+
+    def test_move_success_clears_state(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        mock_cal.mover_cita.return_value = ("new_evt", None)
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_HOUR
+        state.selected_date = date(2026, 3, 23)
+        state.available_slots = ["10:00"]
+        state.available_days = [date(2026, 3, 23)]
+        state.selected_service = SERVICIOS["corte"]
+        state.move_source_event_id = "evt_old"
+        state.move_source_nombre = "Ana García"
+
+        send(interactive_id="hour_2026-03-23_1000")
+        assert conv._states.get(PHONE) is None
+        mock_wa.send_interactive.assert_called()
+
+    def test_move_slot_taken_offers_alternatives(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        mock_cal.mover_cita.return_value = (None, "slot_taken")
+        mock_cal.get_slots_disponibles.return_value = ["10:30", "11:00"]
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_HOUR
+        state.selected_date = date(2026, 3, 23)
+        state.available_slots = ["10:00"]
+        state.available_days = [date(2026, 3, 23)]
+        state.selected_service = SERVICIOS["corte"]
+        state.move_source_event_id = "evt_old"
+        state.move_source_nombre = "Ana García"
+
+        send(interactive_id="hour_2026-03-23_1000")
+        state = conv._get(PHONE)
+        assert state.step == conv.BOOK_SELECT_HOUR
+        mock_wa.send_text_message.assert_called()
+
+    def test_move_slot_taken_no_alternatives_goes_to_day(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        mock_cal.mover_cita.return_value = (None, "slot_taken")
+        mock_cal.get_slots_disponibles.return_value = []
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_HOUR
+        state.selected_date = date(2026, 3, 23)
+        state.available_slots = ["10:00"]
+        state.available_days = [date(2026, 3, 23)]
+        state.selected_service = SERVICIOS["corte"]
+        state.move_source_event_id = "evt_old"
+        state.move_source_nombre = "Ana García"
+
+        send(interactive_id="hour_2026-03-23_1000")
+        assert conv._get(PHONE).step == conv.BOOK_SELECT_DAY
+
+    def test_move_error_goes_to_menu(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        from app.config import SERVICIOS
+        mock_cal.mover_cita.return_value = (None, "error")
+
+        state = conv._get(PHONE)
+        state.step = conv.BOOK_SELECT_HOUR
+        state.selected_date = date(2026, 3, 23)
+        state.available_slots = ["10:00"]
+        state.available_days = [date(2026, 3, 23)]
+        state.selected_service = SERVICIOS["corte"]
+        state.move_source_event_id = "evt_old"
+        state.move_source_nombre = "Ana García"
+
+        send(interactive_id="hour_2026-03-23_1000")
+        assert conv._states.get(PHONE) is None
+        mock_wa.send_text_message.assert_called()
+
+    def test_menu_move_button_present_in_main_menu_buttons(self, mock_wa, mock_cal):
+        """menu_move button is present in the non-event main menu."""
+        from app.utils.interactive import build_main_menu
+        from unittest.mock import patch
+        with patch("app.utils.interactive.EVENTO_ACTIVO", False):
+            menu = build_main_menu()
+        buttons = menu["interactive"]["action"]["buttons"]
+        ids = [b["reply"]["id"] for b in buttons]
+        assert "menu_move" in ids
+
+    def test_menu_move_row_present_in_main_menu_list(self, mock_wa, mock_cal):
+        """menu_move row is present in the event-active main menu list."""
+        from app.utils.interactive import build_main_menu
+        from unittest.mock import patch
+        with patch("app.utils.interactive.EVENTO_ACTIVO", True):
+            menu = build_main_menu()
+        rows = menu["interactive"]["action"]["sections"][0]["rows"]
+        ids = [r["id"] for r in rows]
+        assert "menu_move" in ids

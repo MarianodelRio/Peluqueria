@@ -5,33 +5,37 @@ All existing import paths resolve to the same objects — no breaking changes.
 """
 
 # ── Public API ────────────────────────────────────────────────────────────────
-from .service import (
+from .service import (  # noqa: F401
     get_slots_disponibles,
     get_slots_disponibles_range,
     get_slots_disponibles_evento,
     get_slots_disponibles_evento_range,
     get_slots_disponibles_for_days,
     reservar_cita,
+    mover_cita,
     slot_sigue_libre,
 )
-from .mutations import (
+from .mutations import (  # noqa: F401
     crear_cita,
     cancelar_cita,
     confirmar_cita,
     marcar_manual_confirmado,
     marcar_recordatorio_enviado,
 )
-from .queries import (
+from .queries import (  # noqa: F401
     get_eventos_manuales_sin_confirmar,
     get_citas_para_recordatorio,
     get_citas_futuras,
     get_event_by_id,
 )
-from .client import client, check_calendar_health
-from .engine import compute_slots as _compute_slots
-from .engine import slot_cache_key
-from .repository import events_repo
-from .caches import slot_cache as _slot_cache_obj, citas_cache as _citas_cache_obj
+from .client import client, check_calendar_health  # noqa: F401
+from .engine import compute_slots as _compute_slots  # noqa: F401
+from .engine import slot_cache_key  # noqa: F401
+from .repository import events_repo  # noqa: F401
+from .caches import (  # noqa: F401
+    slot_cache as _slot_cache_obj,
+    citas_cache as _citas_cache_obj,
+)
 
 # ── Legacy private names — keep existing tests passing without modification ───
 # _thread_local: tests do `del cal._thread_local.service` to force service rebuild
@@ -49,7 +53,6 @@ _citas_cache_lock = _citas_cache_obj._lock
 
 def _invalidate_slot_cache(d):
     """Legacy function — delegates to TTLCache.invalidate_matching."""
-    from datetime import date as _date
     date_str = d.isoformat()
     _slot_cache_obj.invalidate_matching(
         lambda k: k.startswith(date_str) or k.startswith(f"evt_{date_str}")

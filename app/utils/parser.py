@@ -140,7 +140,8 @@ def parse_cfg(title: str) -> Optional[dict]:
         return {'type': 'vacaciones'}
 
     # [CFG] HORARIO HH:MM-HH:MM  (space optional, separator: hyphen or en-dash)
-    match = re.search(r'horario\s*(\d{1,2}:\d{2})\s*[-\u2013]\s*(\d{1,2}:\d{2})', title_norm)
+    _pat = r'horario\s*(\d{1,2}:\d{2})\s*[-\u2013]\s*(\d{1,2}:\d{2})'
+    match = re.search(_pat, title_norm)
     if match:
         return {'type': 'horario', 'start': match.group(1), 'end': match.group(2)}
 
@@ -181,7 +182,8 @@ def parse_servicio_from_title(title: str) -> tuple:
     # Match order matters: most-specific first
     if 'mechas' in left_norm:
         return ('mechas', right_part.strip())
-    if any(kw in left_norm for kw in ('corte y barba', 'corte+barba', 'corte barba', 'corte_barba')):
+    _barba_kws = ('corte y barba', 'corte+barba', 'corte barba', 'corte_barba')
+    if any(kw in left_norm for kw in _barba_kws):
         return ('corte_barba', right_part.strip())
     if 'corte' in left_norm:
         return ('corte', right_part.strip())

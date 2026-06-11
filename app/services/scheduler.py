@@ -12,7 +12,6 @@ from app.config import (
     RECORDATORIO_INTERVAL_MIN,
     LIMPIAR_ESTADOS_INTERVAL_MIN,
     TIMEZONE,
-    GOOGLE_CALENDAR_ID,
     WHATSAPP_REMINDER_TEMPLATE,
     WHATSAPP_CONFIRMATION_TEMPLATE,
     WHATSAPP_TEMPLATE_LANG,
@@ -62,7 +61,9 @@ def job_sync_citas_manuales():
                     "type": "button",
                     "sub_type": "quick_reply",
                     "index": "0",
-                    "parameters": [{"type": "payload", "payload": f"reminder_cancel_{event_id}"}],
+                    "parameters": [
+                        {"type": "payload", "payload": f"reminder_cancel_{event_id}"}
+                    ],
                 },
             ]
 
@@ -74,7 +75,10 @@ def job_sync_citas_manuales():
             )
             if sent:
                 cal_service.marcar_manual_confirmado(ev['id'])
-                logger.info(f"[JOB] Manual confirmation sent: {ev['id']} tel={mask_phone(ev['telefono'])}")
+                logger.info(
+                    f"[JOB] Manual confirmation sent: {ev['id']} "
+                    f"tel={mask_phone(ev['telefono'])}"
+                )
             else:
                 logger.warning(f"[JOB] Failed to send manual confirmation: {ev['id']}")
     except Exception as e:
@@ -114,13 +118,17 @@ def job_enviar_recordatorios():
                     "type": "button",
                     "sub_type": "quick_reply",
                     "index": "0",
-                    "parameters": [{"type": "payload", "payload": f"reminder_confirm_{event_id}"}],
+                    "parameters": [
+                        {"type": "payload", "payload": f"reminder_confirm_{event_id}"}
+                    ],
                 },
                 {
                     "type": "button",
                     "sub_type": "quick_reply",
                     "index": "1",
-                    "parameters": [{"type": "payload", "payload": f"reminder_cancel_{event_id}"}],
+                    "parameters": [
+                        {"type": "payload", "payload": f"reminder_cancel_{event_id}"}
+                    ],
                 },
             ]
 
@@ -132,7 +140,10 @@ def job_enviar_recordatorios():
             )
             if sent:
                 cal_service.marcar_recordatorio_enviado(cita['id'])
-                logger.info(f"[JOB] Reminder sent: {cita['id']} tel={mask_phone(cita['telefono'])}")
+                logger.info(
+                    f"[JOB] Reminder sent: {cita['id']} "
+                    f"tel={mask_phone(cita['telefono'])}"
+                )
             else:
                 logger.warning(f"[JOB] Failed to send reminder: {cita['id']}")
     except Exception as e:

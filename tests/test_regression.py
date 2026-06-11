@@ -5,7 +5,7 @@ Each test is named after the bug it covers.
 """
 import pytest
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from unittest.mock import patch, MagicMock
 import pytz
 
@@ -99,11 +99,13 @@ class TestSlotTakenRecoveryRespectsPeriodLimit:
         return state
 
     def test_slot_taken_with_both_periods_shows_period_picker(self, mock_wa, mock_cal):
-        """When slot_taken and both morning+afternoon available → period picker (not raw list)."""
+        """When slot_taken and both morning+afternoon available →
+        period picker (not raw list)."""
         import app.handlers.conversation as conv
         self.setup_confirm_state()
         mock_cal.reservar_cita.return_value = (None, "slot_taken")
-        # 8 morning + 8 afternoon = 16 slots — would exceed WhatsApp limit if passed directly
+        # 8 morning + 8 afternoon = 16 slots
+        # would exceed WhatsApp limit if passed directly
         mock_cal.get_slots_disponibles.return_value = [
             "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30",
             "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30",
@@ -114,7 +116,8 @@ class TestSlotTakenRecoveryRespectsPeriodLimit:
         assert state.step == conv.BOOK_SELECT_PERIOD
 
     def test_slot_taken_only_morning_goes_to_hour_select(self, mock_wa, mock_cal):
-        """When slot_taken and only morning available → hour select (8 slots ≤ limit)."""
+        """When slot_taken and only morning available →
+        hour select (8 slots ≤ limit)."""
         import app.handlers.conversation as conv
         self.setup_confirm_state()
         mock_cal.reservar_cita.return_value = (None, "slot_taken")
@@ -141,7 +144,8 @@ class TestChangeHourRespectsPeriodLimit:
         return state
 
     def test_slot_taken_only_afternoon_goes_direct(self, mock_wa, mock_cal):
-        """slot_taken with only afternoon slots → directly to hour select (within limit)."""
+        """slot_taken with only afternoon slots →
+        directly to hour select (within limit)."""
         import app.handlers.conversation as conv
         self.setup_confirm_state()
         mock_cal.reservar_cita.return_value = (None, "slot_taken")
@@ -177,13 +181,15 @@ class TestPhoneNormalisationInCalendar:
 
     def _make_service(self, desc):
         svc = MagicMock()
+        start = TZ.localize(datetime(2026, 3, 23, 10, 0)).isoformat()
+        end = TZ.localize(datetime(2026, 3, 23, 10, 30)).isoformat()
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [{
                 "id": "evt1",
                 "summary": "Cita - Test",
                 "description": desc,
-                "start": {"dateTime": TZ.localize(datetime(2026, 3, 23, 10, 0)).isoformat()},
-                "end":   {"dateTime": TZ.localize(datetime(2026, 3, 23, 10, 30)).isoformat()},
+                "start": {"dateTime": start},
+                "end":   {"dateTime": end},
             }]
         }
         return svc
@@ -233,8 +239,10 @@ class TestCleanExpiredStatesThreadSafety:
 
         t1 = threading.Thread(target=writer)
         t2 = threading.Thread(target=cleaner)
-        t1.start(); t2.start()
-        t1.join(); t2.join()
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
 
         assert errors == [], f"RuntimeError in clean_expired_states: {errors}"
 
@@ -308,7 +316,8 @@ class TestNameMaxLength:
 
 class TestBookConfirmNoneGuard:
     def test_confirm_with_none_selected_date_resets_to_menu(self, mock_wa, mock_cal):
-        """If selected_date is None (corrupted state), go to menu instead of crashing."""
+        """If selected_date is None (corrupted state), go to menu
+        instead of crashing."""
         import app.handlers.conversation as conv
         from app.config import SERVICIOS
         state = conv._get(PHONE)
@@ -336,12 +345,16 @@ class TestBookConfirmNoneGuard:
 
 class TestValidateConfigInvariant:
     def test_validate_config_rejects_presencia_below_duracion(self):
-        """validate_config must raise RuntimeError when presencia_cliente_min < duracion_min."""
+        """validate_config must raise RuntimeError when
+        presencia_cliente_min < duracion_min."""
         from unittest.mock import patch
         from app.config import validate_config
 
         bad_servicios = {
-            "bad": {"nombre": "X", "precio": 10, "duracion_min": 30, "presencia_cliente_min": 10}
+            "bad": {
+                "nombre": "X", "precio": 10,
+                "duracion_min": 30, "presencia_cliente_min": 10,
+            }
         }
         with patch.multiple(
             "app.config",

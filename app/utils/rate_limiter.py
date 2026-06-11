@@ -15,7 +15,10 @@ class RateLimiter:
     def check(self, key: str) -> bool:
         now = time.time()
         with self._lock:
-            bucket = [ts for ts in self._buckets.get(key, []) if now - ts < self._window]
+            bucket = [
+                ts for ts in self._buckets.get(key, [])
+                if now - ts < self._window
+            ]
             if len(bucket) >= self._limit:
                 self._buckets[key] = bucket
                 return False

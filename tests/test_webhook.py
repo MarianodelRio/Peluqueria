@@ -5,7 +5,7 @@ FastAPI test client + mocked handle_message.
 """
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fastapi import FastAPI
 
 from app.handlers.webhook import router, _deduplicator
@@ -112,7 +112,7 @@ class TestWebhookPost:
         payload = _make_payload("34600000001", "interactive",
                                  interactive_type="list_reply",
                                  interactive_id="day_2026-03-23")
-        resp = client.post("/webhook", json=payload)
+        client.post("/webhook", json=payload)
         mock_handle.assert_called_once_with(
             phone="34600000001", text=None, interactive_id="day_2026-03-23"
         )
@@ -126,7 +126,9 @@ class TestWebhookPost:
         )
 
     def test_duplicate_message_id_skipped(self, mock_handle):
-        payload = _make_payload("34600000001", "text", body_text="Hola", msg_id="dup_001")
+        payload = _make_payload(
+            "34600000001", "text", body_text="Hola", msg_id="dup_001"
+        )
         # First delivery
         client.post("/webhook", json=payload)
         # WhatsApp retry (same message_id)
@@ -161,7 +163,7 @@ class TestWebhookPost:
         payload = _make_payload("34600000001", "interactive",
                                  interactive_type="button_reply",
                                  interactive_id="")
-        resp = client.post("/webhook", json=payload)
+        client.post("/webhook", json=payload)
         mock_handle.assert_not_called()
 
     def test_missing_phone_not_dispatched(self, mock_handle):

@@ -55,7 +55,10 @@ class TTLCache:
         """Remove all expired entries. Returns count of removed entries."""
         now = time.time()
         with self._lock:
-            keys = [k for k, (_, ts) in list(self._data.items()) if now - ts >= self._ttl]
+            keys = [
+                k for k, (_, ts) in list(self._data.items())
+                if now - ts >= self._ttl
+            ]
             for k in keys:
                 self._data.pop(k, None)
             return len(keys)

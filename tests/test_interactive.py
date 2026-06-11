@@ -3,7 +3,6 @@
 Unit tests for utils/interactive.py.
 Validates payload structure, WhatsApp limits and edge cases.
 """
-import pytest
 from datetime import date
 from unittest.mock import patch
 from app.utils.interactive import (
@@ -69,7 +68,7 @@ class TestBuildMainMenu:
 
     def test_button_ids(self):
         ids = {b["reply"]["id"] for b in _buttons(build_main_menu())}
-        assert ids == {"menu_book", "menu_view", "menu_cancel"}
+        assert ids == {"menu_book", "menu_move", "menu_cancel"}
 
     def test_button_titles_under_20_chars(self):
         for b in _buttons(build_main_menu()):
@@ -187,7 +186,10 @@ class TestBuildDaysList:
 
     def test_total_rows_under_10(self):
         # WhatsApp limit: 10 rows total
-        days = [date(2026, 3, 23) + __import__("datetime").timedelta(days=i) for i in range(9)]
+        from datetime import timedelta
+        days = [
+            date(2026, 3, 23) + timedelta(days=i) for i in range(9)
+        ]
         rows = _all_rows(build_days_list(days))
         assert len(rows) <= 10
 
@@ -303,7 +305,7 @@ class TestBuildAppointmentsView:
         msg = build_appointments_view(citas)
         body = msg["interactive"]["body"]["text"]
         # Only 8 lines starting with 📅 should appear
-        lines_with_date = [l for l in body.splitlines() if "📅" in l]
+        lines_with_date = [line for line in body.splitlines() if "📅" in line]
         assert len(lines_with_date) == 8
 
 
@@ -352,12 +354,16 @@ class TestBuildBackToMenuMessage:
 class TestBuildHoursListCameFromPeriod:
     def test_9_slots_came_from_period_true_yields_10_rows(self):
         slots = [f"10:{m:02d}" for m in range(0, 270, 30)][:9]  # 9 slots
-        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, came_from_period=True))
+        rows = _all_rows(
+            build_hours_list(date(2026, 3, 23), slots, came_from_period=True)
+        )
         assert len(rows) == 10
 
     def test_came_from_period_true_includes_back_to_period(self):
         slots = ["10:00", "10:30", "11:00"]
-        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, came_from_period=True))
+        rows = _all_rows(
+            build_hours_list(date(2026, 3, 23), slots, came_from_period=True)
+        )
         row_ids = [r["id"] for r in rows]
         assert "back_to_period" in row_ids
         assert "change_period" not in row_ids
@@ -366,9 +372,9 @@ class TestBuildHoursListCameFromPeriod:
 
     def test_came_from_period_false_includes_back_to_day(self):
         slots = ["10:00", "10:30", "11:00"]
-        rows = _all_rows(build_hours_list(date(2026, 3, 23), slots, came_from_period=False))
+        rows = _all_rows(
+            build_hours_list(date(2026, 3, 23), slots, came_from_period=False)
+        )
         row_ids = [r["id"] for r in rows]
         assert "back_to_day" in row_ids
         assert "back_to_period" not in row_ids
-
-

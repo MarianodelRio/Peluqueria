@@ -4,8 +4,8 @@ Integration tests for the unified get_slots_disponibles(mode=) API.
 Mocks events_repo.list_for_day / list_for_range — no real credentials needed.
 """
 import pytest
-from datetime import date, datetime
-from unittest.mock import patch, MagicMock
+from datetime import date
+from unittest.mock import patch
 
 import pytz
 
@@ -42,7 +42,8 @@ class TestUnifiedGetSlotsDisponibles:
         assert "10:00" in slots
 
     def test_mode_evento_returns_event_slots(self):
-        """When mode='evento' and day is in EVENTO_DIAS, slots come from event horario."""
+        """When mode='evento' and day is in EVENTO_DIAS, slots come from event
+        horario."""
         from app.services.calendar.service import get_slots_disponibles
 
         event_horario_cfg = {_EVENT_DAY.isoformat(): [["10:00", "12:00"]]}
@@ -57,7 +58,8 @@ class TestUnifiedGetSlotsDisponibles:
         assert "12:00" not in slots  # last slot must finish before closing
 
     def test_mode_evento_returns_empty_for_unknown_day(self):
-        """get_slots_disponibles(mode='evento') returns [] when day is not in EVENTO_DIAS."""
+        """get_slots_disponibles(mode='evento') returns [] when day not in
+        EVENTO_DIAS."""
         from app.services.calendar.service import get_slots_disponibles
 
         with patch("app.services.calendar.service.EVENTO_DIAS", {}):
@@ -82,7 +84,9 @@ class TestUnifiedGetSlotsDisponibles:
         # Test normal mode — cache key has no prefix
         with patch("app.services.calendar.service.events_repo") as mock_repo:
             mock_repo.list_for_range.return_value = {d: []}
-            get_slots_disponibles_for_days([d], mode='normal', duracion_min=30, presencia_cliente_min=30)
+            get_slots_disponibles_for_days(
+                [d], mode='normal', duracion_min=30, presencia_cliente_min=30
+            )
 
         normal_key = slot_cache_key(d, 'normal', 30, 30)
         assert not normal_key.startswith("evt_"), "Normal key must not have evt_ prefix"
@@ -92,7 +96,9 @@ class TestUnifiedGetSlotsDisponibles:
         with patch("app.services.calendar.service.EVENTO_DIAS", event_horario_cfg), \
              patch("app.services.calendar.service.events_repo") as mock_repo:
             mock_repo.list_for_range.return_value = {d: []}
-            get_slots_disponibles_for_days([d], mode='evento', duracion_min=30, presencia_cliente_min=30)
+            get_slots_disponibles_for_days(
+                [d], mode='evento', duracion_min=30, presencia_cliente_min=30
+            )
 
         evt_key = slot_cache_key(d, 'evento', 30, 30)
         assert evt_key.startswith("evt_"), "Evento key must have evt_ prefix"

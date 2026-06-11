@@ -34,10 +34,12 @@ class TestBuildStatusReport:
         """A healthy report must contain CPU, RAM, disk, and uptime sections."""
         psutil_mock = self._make_psutil_mock()
 
-        with patch.dict("sys.modules", {"psutil": psutil_mock}), \
-             patch("app.utils.admin.check_calendar_health", return_value=True), \
-             patch("app.utils.admin.metrics.get_all", return_value={"uptime_seconds": 3661, "mensajes_recibidos": 5}):
-
+        _metrics_val = {"uptime_seconds": 3661, "mensajes_recibidos": 5}
+        with (
+            patch.dict("sys.modules", {"psutil": psutil_mock}),
+            patch("app.utils.admin.check_calendar_health", return_value=True),
+            patch("app.utils.admin.metrics.get_all", return_value=_metrics_val),
+        ):
             from app.utils.admin import build_status_report
             report = build_status_report()
 
@@ -47,13 +49,21 @@ class TestBuildStatusReport:
         assert "Uptime" in report or "uptime" in report
 
     def test_calendar_failure_shows_error_marker_no_exception(self):
-        """When Calendar health check raises, the report must contain an error marker and not propagate."""
+        """When Calendar health check raises, report must contain an error
+        marker and not propagate."""
         psutil_mock = self._make_psutil_mock()
 
-        with patch.dict("sys.modules", {"psutil": psutil_mock}), \
-             patch("app.utils.admin.check_calendar_health", side_effect=Exception("timeout")), \
-             patch("app.utils.admin.metrics.get_all", return_value={"uptime_seconds": 0}):
-
+        with (
+            patch.dict("sys.modules", {"psutil": psutil_mock}),
+            patch(
+                "app.utils.admin.check_calendar_health",
+                side_effect=Exception("timeout"),
+            ),
+            patch(
+                "app.utils.admin.metrics.get_all",
+                return_value={"uptime_seconds": 0},
+            ),
+        ):
             from app.utils.admin import build_status_report
             report = build_status_report()
 
@@ -61,13 +71,19 @@ class TestBuildStatusReport:
         # Must not raise — we received a string
 
     def test_psutil_failure_shows_partial_error_no_exception(self):
-        """When psutil fails entirely, the report includes an error string and does not raise."""
+        """When psutil fails entirely, report includes an error string and
+        does not raise."""
         broken_psutil = MagicMock()
         broken_psutil.cpu_percent.side_effect = RuntimeError("no sensors")
 
-        with patch.dict("sys.modules", {"psutil": broken_psutil}), \
-             patch("app.utils.admin.check_calendar_health", return_value=True), \
-             patch("app.utils.admin.metrics.get_all", return_value={"uptime_seconds": 0}):
+        with (
+            patch.dict("sys.modules", {"psutil": broken_psutil}),
+            patch("app.utils.admin.check_calendar_health", return_value=True),
+            patch(
+                "app.utils.admin.metrics.get_all",
+                return_value={"uptime_seconds": 0},
+            ),
+        ):
 
             from app.utils.admin import build_status_report
             report = build_status_report()
@@ -106,35 +122,45 @@ def reset_conversation_state():
 class TestAdminCommandIntercept:
 
     def test_estado_from_admin_calls_send_text_state_unchanged(self, mock_wa):
-        """/estado from ADMIN_PHONE must call send_text_message and leave state.step unchanged."""
+        """/estado from ADMIN_PHONE must call send_text_message and leave
+        state.step unchanged."""
         import app.handlers.conversation as conv
 
-        with patch("app.handlers.conversation.build_status_report", return_value="informe de prueba"):
+        with patch(
+            "app.handlers.conversation.build_status_report",
+            return_value="informe de prueba",
+        ):
             conv.handle_message(ADMIN, "/estado", None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "informe de prueba")
         # State must not have been mutated to a booking step
         state = conv._states.get(ADMIN)
-        # After the command the state object exists (touch() ran) but step is MENU (default)
+        # After the command the state exists (touch() ran) but step is MENU (default)
         assert state is None or state.step == conv.MENU
 
     def test_estado_from_non_admin_triggers_normal_flow(self, mock_wa, mock_cal):
         """/estado from a non-admin number must NOT trigger the admin command."""
         import app.handlers.conversation as conv
 
-        with patch("app.handlers.conversation.build_status_report", return_value="informe") as mock_report:
+        with patch(
+            "app.handlers.conversation.build_status_report", return_value="informe"
+        ) as mock_report:
             conv.handle_message(OTHER, "/estado", None)
 
         mock_report.assert_not_called()
         # Non-admin sending arbitrary text in MENU state → menu displayed
         mock_wa["interactive"].assert_called()
 
-    def test_estado_when_admin_phone_empty_triggers_normal_flow(self, mock_wa, mock_cal, monkeypatch):
+    def test_estado_when_admin_phone_empty_triggers_normal_flow(
+        self, mock_wa, mock_cal, monkeypatch
+    ):
         """/estado when ADMIN_PHONE is empty string must not trigger admin command."""
         import app.handlers.conversation as conv
         monkeypatch.setattr("app.handlers.conversation.ADMIN_PHONE", "")
 
-        with patch("app.handlers.conversation.build_status_report", return_value="informe") as mock_report:
+        with patch(
+            "app.handlers.conversation.build_status_report", return_value="informe"
+        ) as mock_report:
             conv.handle_message(ADMIN, "/estado", None)
 
         mock_report.assert_not_called()
@@ -143,25 +169,36 @@ class TestAdminCommandIntercept:
         """/ESTADO (uppercase) from ADMIN_PHONE must be matched case-insensitively."""
         import app.handlers.conversation as conv
 
-        with patch("app.handlers.conversation.build_status_report", return_value="informe mayus"):
+        with patch(
+            "app.handlers.conversation.build_status_report",
+            return_value="informe mayus",
+        ):
             conv.handle_message(ADMIN, "/ESTADO", None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "informe mayus")
 
     def test_estado_with_whitespace_from_admin_triggers_report(self, mock_wa):
-        """/estado with surrounding whitespace from ADMIN_PHONE must still be matched."""
+        """/estado with surrounding whitespace from ADMIN_PHONE must still
+        be matched."""
         import app.handlers.conversation as conv
 
-        with patch("app.handlers.conversation.build_status_report", return_value="informe ws"):
+        with patch(
+            "app.handlers.conversation.build_status_report", return_value="informe ws"
+        ):
             conv.handle_message(ADMIN, "  /estado  ", None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "informe ws")
 
-    def test_estado_via_interactive_id_from_admin_does_not_trigger(self, mock_wa, mock_cal):
-        """text=None (interactive message) must NOT trigger the admin command even from admin."""
+    def test_estado_via_interactive_id_from_admin_does_not_trigger(
+        self, mock_wa, mock_cal
+    ):
+        """text=None (interactive message) must NOT trigger the admin command
+        even from admin."""
         import app.handlers.conversation as conv
 
-        with patch("app.handlers.conversation.build_status_report", return_value="informe") as mock_report:
+        with patch(
+            "app.handlers.conversation.build_status_report", return_value="informe"
+        ) as mock_report:
             conv.handle_message(ADMIN, None, "back_to_menu")
 
         mock_report.assert_not_called()
@@ -173,7 +210,9 @@ class TestAdminCommandIntercept:
         # Pre-seed a non-MENU state for the admin phone
         conv._states[ADMIN] = conv.ConversationState(step=conv.BOOK_SELECT_DAY)
 
-        with patch("app.handlers.conversation.build_status_report", return_value="informe"):
+        with patch(
+            "app.handlers.conversation.build_status_report", return_value="informe"
+        ):
             conv.handle_message(ADMIN, "/estado", None)
 
         state = conv._states.get(ADMIN)

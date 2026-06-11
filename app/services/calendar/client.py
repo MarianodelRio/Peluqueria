@@ -8,7 +8,11 @@ import google_auth_httplib2
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
-from app.config import GOOGLE_CREDENTIALS_PATH, GOOGLE_API_TIMEOUT_SEC, GOOGLE_CALENDAR_ID
+from app.config import (
+    GOOGLE_CREDENTIALS_PATH,
+    GOOGLE_API_TIMEOUT_SEC,
+    GOOGLE_CALENDAR_ID,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +85,9 @@ class CalendarClient:
 
 
 # Module-level singleton
-client = CalendarClient(GOOGLE_CREDENTIALS_PATH, GOOGLE_API_TIMEOUT_SEC, GOOGLE_CALENDAR_ID)
+client = CalendarClient(
+    GOOGLE_CREDENTIALS_PATH, GOOGLE_API_TIMEOUT_SEC, GOOGLE_CALENDAR_ID
+)
 
 
 def check_calendar_health() -> bool:

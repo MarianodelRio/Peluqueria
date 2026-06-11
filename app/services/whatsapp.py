@@ -13,7 +13,7 @@ def _mask(phone: str) -> str:
     """Mask phone for safe logging — show only last 4 digits."""
     return f"****{phone[-4:]}" if len(phone) > 4 else "****"
 
-_BASE_URL = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+_BASE_URL = f"https://graph.facebook.com/v23.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
 _HEADERS = {
     "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
     "Content-Type": "application/json",
@@ -40,21 +40,31 @@ def _post(body: dict) -> bool:
         except httpx.HTTPStatusError as e:
             status = e.response.status_code
             if status < 500:
-                # 4xx: bad payload or auth error — don't log response body (may contain tokens)
-                logger.error(f"[WA] HTTP {status} (client error) — check credentials/payload")
+                # 4xx: bad payload or auth error — don't log response body
+                # (may contain tokens)
+                logger.error(
+                    f"[WA] HTTP {status} (client error) — check credentials/payload"
+                )
                 return False
             delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
             if attempt < _MAX_RETRIES:
-                logger.warning(f"[WA] HTTP {status}, retry {attempt + 1}/{_MAX_RETRIES} (delay {delay}s)")
+                logger.warning(
+                    f"[WA] HTTP {status}, retry {attempt + 1}/{_MAX_RETRIES}"
+                    f" (delay {delay}s)"
+                )
                 time.sleep(delay)
             else:
-                logger.error(f"[WA] HTTP {status} (server error) after {_MAX_RETRIES} retries")
+                logger.error(
+                    f"[WA] HTTP {status} (server error) after {_MAX_RETRIES} retries"
+                )
                 metrics.inc('whatsapp_errors')
                 return False
         except Exception as e:
             delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
             if attempt < _MAX_RETRIES:
-                logger.warning(f"[WA] Request error (retry {attempt + 1}/{_MAX_RETRIES}): {e}")
+                logger.warning(
+                    f"[WA] Request error (retry {attempt + 1}/{_MAX_RETRIES}): {e}"
+                )
                 time.sleep(delay)
             else:
                 logger.error(f"[WA] Request error: {e}")
@@ -89,7 +99,10 @@ def send_interactive(to: str, payload: dict) -> bool:
         **payload,
     })
     if ok:
-        logger.info(f"[WA] interactive({payload.get('interactive', {}).get('type')}) → {_mask(to)}")
+        logger.info(
+            "[WA] interactive(%s) → %s",
+            payload.get('interactive', {}).get('type'), _mask(to),
+        )
     return ok
 
 
