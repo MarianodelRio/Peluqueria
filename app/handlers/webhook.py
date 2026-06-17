@@ -20,11 +20,13 @@ import json
 import logging
 import re
 import threading
+import time
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 
 from app.config import (
     MAX_CONCURRENT_HANDLERS,
+    STRESS_MODE,
     WHATSAPP_APP_SECRET,
     WHATSAPP_VERIFY_TOKEN,
 )
@@ -41,6 +43,11 @@ router = APIRouter()
 # Limits concurrent background handlers to prevent thread pool exhaustion.
 _handler_semaphore = threading.Semaphore(MAX_CONCURRENT_HANDLERS)
 
+if STRESS_MODE:
+    from tests.stress.timing_store import store as _timing_store
+else:
+    _timing_store = None  # type: ignore[assignment]
+
 # ── Rate limiters and deduplicator ─────────────────────────────────────────
 ip_rate_limiter    = RateLimiter(limit=60, window_seconds=60)
 phone_rate_limiter = RateLimiter(limit=20, window_seconds=60)
@@ -49,13 +56,22 @@ _deduplicator      = MessageDeduplicator(ttl_minutes=10)
 
 def _handle_with_semaphore(phone: str, text, interactive_id):
     """Acquire semaphore before processing; release when done."""
+    if _timing_store is not None:
+        _timing_store.mark_enqueued(phone, time.time())
+
     if not _handler_semaphore.acquire(blocking=False):
         logger.warning(
             "[WEBHOOK] Handler capacity exceeded, dropping message from %s",
             mask_phone(phone),
         )
         metrics.inc('handler_dropped')
+        if _timing_store is not None:
+            _timing_store.mark_dropped(phone)
         return
+
+    if _timing_store is not None:
+        _timing_store.mark_started(phone, time.time())
+
     try:
         handle_message(phone=phone, text=text, interactive_id=interactive_id)
     finally:
@@ -173,7 +189,7 @@ def _validate_and_extract(msg: dict, ip: str) -> dict | None:
     if not _validate_phone(phone):
         logger.warning(f"[WEBHOOK] Invalid phone format: {mask_phone(phone)}")
         return None
-    if not phone_rate_limiter.check(phone):
+    if not STRESS_MODE and not phone_rate_limiter.check(phone):
         logger.warning(f"[WEBHOOK] Phone rate limit exceeded for {mask_phone(phone)}")
         return None
     metrics.inc('messages_received')
@@ -231,7 +247,7 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
     """
     ip = request.client.host if request.client else "unknown"
 
-    if not ip_rate_limiter.check(ip):
+    if not STRESS_MODE and not ip_rate_limiter.check(ip):
         logger.warning(f"[WEBHOOK] IP rate limit exceeded for {ip}")
         raise HTTPException(status_code=429, detail="Too Many Requests")
 

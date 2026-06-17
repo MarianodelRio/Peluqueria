@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.config import validate_config
+from app.config import validate_config, STRESS_MODE, STRESS_REALISTIC
 from app.handlers.webhook import router as webhook_router
 from app.services.calendar import check_calendar_health
 from app.services.scheduler import create_scheduler
@@ -66,13 +66,25 @@ _scheduler = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
-    validate_config()   # Fail fast if critical env vars are missing
-    logger.info("[APP] Warming up Calendar client...")
-    check_calendar_health()
-    logger.info("[APP] Starting scheduler...")
-    _scheduler = create_scheduler()
-    _scheduler.start()
-    logger.info("[APP] Scheduler started. App ready.")
+    if STRESS_MODE:
+        if STRESS_REALISTIC:
+            validate_config()
+            check_calendar_health()
+            from tests.stress.mocks import apply_realistic
+            apply_realistic()
+            logger.warning("[APP] STRESS_REALISTIC — Calendar real, writes mock")
+        else:
+            from tests.stress.mocks import apply_all
+            apply_all()
+            logger.warning("[APP] STRESS_MODE — todos los externos mockeados")
+
+        from tests.stress.stress_router import router as stress_router
+        app.include_router(stress_router)
+    else:
+        validate_config()
+        check_calendar_health()
+        _scheduler = create_scheduler()
+        _scheduler.start()
     yield
     logger.info("[APP] Shutting down scheduler...")
     if _scheduler:
@@ -102,6 +114,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health")
 def health():
+    if STRESS_MODE:
+        return JSONResponse(
+            {"status": "ok", "calendar": "stress_mode", "metrics": get_metrics()},
+            status_code=200,
+        )
     cal_ok = check_calendar_health()
     status = "ok" if cal_ok else "degraded"
     return JSONResponse(

@@ -355,6 +355,12 @@ CITAS_CACHE_TTL_SEC = 60
 # ── Concurrency ────────────────────────────────────────────────────────────
 MAX_CONCURRENT_HANDLERS = 40
 
+# ── Stress-test mode ──────────────────────────────────────────────────────
+# When STRESS_MODE=1: skips env var validation, calendar health check, and
+# scheduler; applies mock patches for all external APIs.
+STRESS_MODE: bool = os.getenv("STRESS_MODE", "0") == "1"
+STRESS_REALISTIC: bool = os.getenv("STRESS_REALISTIC", "0") == "1"
+
 
 def validate_config() -> None:
     """

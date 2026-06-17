@@ -1,0 +1,16 @@
+Stress Test — Escenario 2: Latencia real de Calendar
+Modo:        Calendar lecturas reales, crear_cita mockeado, WhatsApp mockeado
+Fecha:       2026-06-17 12:06:20
+STRESS_DATE: 2026-06-24
+Fases:       5 10 15 20 usuarios / 90s por fase
+Baseline RSS: 69.6 MB
+--------------------------------------------------------------------------------
+
+Users    Count      e2e_p50    e2e_p95    e2e_p99    proc_p50   Dropped    RSS_MB    
+--------------------------------------------------------------------------------
+5        697        104        277        670        104        0          100.0     
+10       1399       105        331        671        105        0          147.8     
+15       2128       104        315        673        104        0          164.1     
+20       2813       105        363        647        105        0          209.8     
+
+Baseline RSS: 69.6 MB  |  Final RSS: 209.8 MB
