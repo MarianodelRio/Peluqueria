@@ -10,6 +10,7 @@
 
 # ── Variables — edita esta línea según tu caso ─────────────────────────────
 NGROK_DOMAIN := unpermanently-repairable-devon.ngrok-free.dev
+WATCHDOG_INTERVAL := 0
 
 # ── Variables automáticas — no tocar ──────────────────────────────────────
 USER        := $(shell whoami)
@@ -213,9 +214,9 @@ _service-restart:
 .PHONY: _watchdog-cron
 _watchdog-cron:
 	@echo "→ Configurando cron del watchdog..."
-	@CRON_LINE="*/5 * * * * cd $(APP_DIR) && $(PYTHON) watchdog.py >> $(LOG_DIR)/watchdog.log 2>&1"; \
+	@CRON_LINE="$(WATCHDOG_INTERVAL) * * * * cd $(APP_DIR) && $(PYTHON) watchdog.py >> $(LOG_DIR)/watchdog.log 2>&1"; \
 	( crontab -l 2>/dev/null | grep -v watchdog.py; echo "$$CRON_LINE" ) | crontab -
-	@echo "   ✓ watchdog activo (cada 5 minutos)"
+	@echo "   ✓ watchdog activo ($(WATCHDOG_INTERVAL))"
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  OPERACIÓN DIARIA

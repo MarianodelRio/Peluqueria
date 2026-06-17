@@ -51,8 +51,8 @@ servicios:
 
 # Ventana de busqueda de citas en Google Calendar (dias desde hoy).
 lookaheads_dias:
-  citas_cliente: 30
-  citas_manuales: 60
+  citas_cliente: 15
+  citas_manuales: 15
 
 # Ventana de envio de recordatorios (horas antes de la cita).
 recordatorio_horas_antes:

@@ -181,6 +181,7 @@ def create_scheduler() -> BackgroundScheduler:
             name=fn.__name__,
             max_instances=1,
             coalesce=True,
+            misfire_grace_time=60,
         )
 
     return scheduler

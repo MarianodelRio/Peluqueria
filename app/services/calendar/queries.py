@@ -44,7 +44,7 @@ def get_eventos_manuales_sin_confirmar() -> List[dict]:
         timeMax=time_max,
         singleEvents=True,
         orderBy='startTime',
-        fields='items(id,summary,description,start,end),nextPageToken',
+        fields='items(id,summary,description,start,end)',
     ).execute(num_retries=2)
 
     manual_events = []
@@ -102,7 +102,7 @@ def get_citas_para_recordatorio() -> List[dict]:
         timeMax=window_end.isoformat(),
         singleEvents=True,
         orderBy='startTime',
-        fields='items(id,summary,description,start,end),nextPageToken',
+        fields='items(id,summary,description,start,end)',
     ).execute(num_retries=2)
 
     reminders = []
@@ -164,7 +164,7 @@ def get_citas_futuras(telefono: str) -> list:
             timeMax=time_max,
             singleEvents=True,
             orderBy='startTime',
-            fields='items(id,summary,description,start,end),nextPageToken',
+            fields='items(id,summary,description,start,end)',
         ).execute(num_retries=2)
 
         citas = []

@@ -1,11 +1,12 @@
 """
 watchdog.py — Standalone health-check script for the Peluqueria bot.
 
-Run every 5 minutes via cron. Performs four checks:
+Run every 60 minutes via cron. Performs five checks:
   1. Bot /health endpoint (bot_down, bot_degraded)
   2. RAM usage (ram_critical)
   3. Disk usage (disk_critical)
   4. Error spike in /metrics (errors_spike)
+  5. Ngrok tunnel reachability (ngrok_down)
 
 Sends a WhatsApp template alert (alerta_sistema) to the admin when any check
 fails. Per-alert cooldowns are persisted in a JSON state file.
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 # ── Constants with env overrides ───────────────────────────────────────────
 BOT_URL = os.getenv("WATCHDOG_BOT_URL", "http://localhost:8000")
 TEMPLATE_NAME = os.getenv("WATCHDOG_TEMPLATE_NAME", "alerta_sistema")
-STATE_FILE = os.getenv("WATCHDOG_STATE_FILE", "/tmp/watchdog_state.json")
+STATE_FILE = os.getenv("WATCHDOG_STATE_FILE", "/var/log/peluqueria/watchdog_state.json")
 RAM_PCT_THRESHOLD = int(os.getenv("WATCHDOG_RAM_CRITICAL_PCT", "90"))
 DISK_PCT_THRESHOLD = int(os.getenv("WATCHDOG_DISK_CRITICAL_PCT", "90"))
 ERROR_SPIKE_THRESHOLD = int(os.getenv("WATCHDOG_ERROR_SPIKE_THRESHOLD", "3"))
@@ -42,6 +43,7 @@ ERROR_SPIKE_THRESHOLD = int(os.getenv("WATCHDOG_ERROR_SPIKE_THRESHOLD", "3"))
 COOLDOWN_STANDARD_SEC = 30 * 60       # 30 minutes
 COOLDOWN_ERRORS_SEC = 2 * 60 * 60     # 2 hours
 HEALTH_TIMEOUT_SEC = 5
+NGROK_DOMAIN = os.getenv("NGROK_DOMAIN", "")
 
 
 # ── State management ───────────────────────────────────────────────────────
@@ -51,7 +53,7 @@ def _default_state() -> dict:
         "last_alerts": {
             k: 0 for k in [
                 "bot_down", "bot_degraded", "ram_critical",
-                "disk_critical", "errors_spike",
+                "disk_critical", "errors_spike", "ngrok_down",
             ]
         },
         "prev_metrics": {"calendar_errors": 0, "whatsapp_errors": 0},
@@ -252,6 +254,20 @@ def run_checks() -> None:
         except Exception as exc:
             logger.warning("[WATCHDOG] Could not fetch /metrics: %s", exc)
             # Do NOT update prev_metrics on failure
+
+    # Check 5 — ngrok tunnel (only when bot is reachable and NGROK_DOMAIN is set)
+    if not bot_is_down and NGROK_DOMAIN:
+        try:
+            r = httpx.get(
+                f"https://{NGROK_DOMAIN}/health",
+                timeout=HEALTH_TIMEOUT_SEC,
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            alerts_fired.append((
+                "ngrok_down", COOLDOWN_STANDARD_SEC,
+                "NGROK CAIDO", str(exc),
+            ))
 
     # 4. Process fired alerts
     for key, cooldown_sec, label, detail in alerts_fired:
