@@ -29,3 +29,14 @@ class RateLimiter:
     def reset(self, key: str) -> None:
         with self._lock:
             self._buckets.pop(key, None)
+
+    def purge_inactive(self) -> int:
+        now = time.time()
+        with self._lock:
+            inactive = [
+                k for k, ts in self._buckets.items()
+                if not any(now - t < self._window for t in ts)
+            ]
+            for k in inactive:
+                del self._buckets[k]
+            return len(inactive)

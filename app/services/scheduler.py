@@ -4,6 +4,7 @@ APScheduler background jobs.
 """
 import logging
 import time
+from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -166,7 +167,10 @@ def job_limpiar_estados_conversacion():
 
 
 def create_scheduler() -> BackgroundScheduler:
-    scheduler = BackgroundScheduler(timezone=TIMEZONE)
+    scheduler = BackgroundScheduler(
+        executors={'default': ThreadPoolExecutor(20)},
+        timezone=TIMEZONE,
+    )
 
     _jobs = [
         (job_sync_citas_manuales,          SYNC_MANUAL_INTERVAL_MIN),

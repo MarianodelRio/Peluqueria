@@ -145,6 +145,11 @@ def clean_expired_states():
         for phone in stale_phones:
             cal._citas_cache.pop(phone, None)
 
+    # Purge inactive rate limiter buckets
+    from app.handlers.webhook import ip_rate_limiter, phone_rate_limiter
+    ip_rate_limiter.purge_inactive()
+    phone_rate_limiter.purge_inactive()
+
 
 # ── Entry point ────────────────────────────────────────────────────────────
 

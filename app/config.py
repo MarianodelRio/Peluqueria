@@ -339,7 +339,7 @@ LIMPIAR_ESTADOS_INTERVAL_MIN = 10
 # ── WhatsApp templates ─────────────────────────────────────────────────────
 WHATSAPP_REMINDER_TEMPLATE = "recordatorio_cita"
 WHATSAPP_CONFIRMATION_TEMPLATE = "confirmacion_cita"
-WHATSAPP_TEMPLATE_LANG = "es"
+WHATSAPP_TEMPLATE_LANG = "es_ES"
 INTERACTIVE_FOOTER = "_Cualquier texto te llevará de vuelta al menú principal_"
 
 # ── HTTP / API timeouts ────────────────────────────────────────────────────
