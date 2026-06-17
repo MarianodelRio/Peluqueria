@@ -48,7 +48,7 @@ VM Linux (Ubuntu 22.04) — Google Cloud
   ├── ngrok              (túnel HTTPS → localhost:8000)
   ├── FastAPI + Uvicorn  (puerto 8000, solo localhost)
   ├── APScheduler        (jobs automáticos)
-  └── Watchdog cron      (comprobaciones cada 5 min)
+  └── Watchdog cron      (comprobaciones cada 60 min)
       │
       ▼
 Google Calendar (fuente de verdad)
@@ -277,6 +277,8 @@ WHATSAPP_APP_SECRET=abc123def456
 GOOGLE_CALENDAR_ID=c_abc123@group.calendar.google.com
 GOOGLE_CREDENTIALS_PATH=./credentials.json
 ADMIN_PHONE=34612345678
+NGROK_DOMAIN=tu-dominio.ngrok-free.app
+NGROK_TOKEN=tu_auth_token_ngrok
 ```
 
 Coloca `credentials.json` en la raíz del proyecto.
@@ -334,7 +336,7 @@ En **Compute Engine → Instancias de VM → Crear instancia**:
 
 En **Opciones avanzadas → Redes**: marca **Permitir tráfico HTTP** y **Permitir tráfico HTTPS**.
 
-Reserva IP estática: **Red de VPC → Direcciones IP externas** → busca la IP de tu instancia → **Estática** → nombre: `peluqueria-ip`.
+> No es necesario reservar IP estática — el bot usa ngrok con dominio estático, que no depende de la IP de la VM.
 
 ### 5.2 Preparar la VM
 
@@ -348,15 +350,12 @@ cd ~/app
 
 Sube los ficheros sensibles desde tu máquina local:
 ```bash
-gcloud compute scp credentials.json peluqueria@peluqueria-vm:~/app/credentials.json --zone=us-east1-b
+gcloud compute scp .env credentials.json NOMBRE_VM:~/app/ --zone=us-east1-b --project=NOMBRE_PROYECTO
 ```
 
 En la VM:
 ```bash
-cp .env.example .env
-nano .env              # rellena todos los valores
 chmod 600 .env credentials.json
-nano Makefile          # edita: NGROK_DOMAIN := tu-dominio.ngrok-free.app
 ```
 
 ### 5.3 Instalar y arrancar
@@ -406,8 +405,9 @@ make test     # verifica que todo sigue funcionando
 make start    # reinicia el bot con el nuevo código
 ```
 
-**Watchdog automático** — corre cada 5 min vía cron y comprueba:
+**Watchdog automático** — corre cada 60 min vía cron y comprueba:
 - `/health` del bot — caídas y fallos de Calendar
+- Túnel ngrok — accesible desde el exterior
 - RAM > 90% y disco > 90%
 - Spike de errores en `/metrics`
 
@@ -453,7 +453,7 @@ Peluqueria/
 ├── tests/                      # Suite de tests — todas las APIs mockeadas
 │
 ├── config.yaml                 # Configuración del negocio (horario, servicios, etc.)
-├── watchdog.py                 # Monitorización (cron cada 5 min)
+├── watchdog.py                 # Monitorización (cron cada 60 min, configurable)
 ├── generar_qr.py               # Genera qr_cita.png con el enlace de WhatsApp
 ├── Makefile                    # Automatización de instalación y operación
 ├── .env.example                # Plantilla de variables de entorno

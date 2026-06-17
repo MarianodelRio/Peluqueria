@@ -9,7 +9,7 @@ WhatsApp booking bot for a barber shop. Clients book, view, and cancel appointme
 - **Background jobs**: APScheduler 3.x
 - **Persistence**: Google Calendar (no database — Calendar is the single source of truth)
 - **State**: In-memory conversation state, expires after 30 min of inactivity
-- **Deployment**: Linux + systemd (production), ngrok (development)
+- **Deployment**: Linux + systemd + ngrok static domain (production and development)
 - **Tests**: pytest — all external APIs mocked, no real credentials needed
 
 ---
@@ -24,9 +24,17 @@ app/
     webhook.py           # GET /webhook (verification) + POST /webhook (incoming messages)
     conversation.py      # State machine: MENU → BOOK_SELECT_SERVICE → BOOK_SELECT_DAY → BOOK_SELECT_PERIOD → BOOK_SELECT_HOUR → BOOK_ENTER_NAME; CANCEL_SELECT → CANCEL_CONFIRM. Entry: handle_message()
   services/
-    calendar.py          # All Calendar operations. Slot cache (30s TTL). Per-slot booking locks. Range-batched fetch for day picker.
+    calendar/            # All Calendar operations.
+      service.py         # Public API: reservar, cancelar, mover, slots
+      queries.py         # Read-only Calendar queries (scheduler jobs + client lookups)
+      mutations.py       # Calendar writes: crear_cita, cancelar_cita, marcar_* fields
+      engine.py          # Slot availability logic
+      caches.py          # Slot cache (30s TTL) + citas cache (60s TTL)
+      locks.py           # Per-slot booking locks (prevent double-booking)
+      client.py          # Thread-local Google Calendar API client
+      repository.py      # Raw Calendar API calls, range-batched fetch for day picker
     whatsapp.py          # send_text_message(), send_interactive(), send_template()
-    scheduler.py         # 3 jobs: sync manual bookings (5 min), reminders (1 h), state cleanup (10 min)
+    scheduler.py         # 3 jobs: sync manual bookings (60 min), reminders (60 min), state cleanup (10 min)
   utils/
     parser.py            # parse_tel/nombre/estado/reminder/cfg, set_field, remove_field
     slots.py             # get_base_slots_for_day(), generate_slots(), filter_available_slots()
@@ -98,7 +106,7 @@ Three services are defined in `SERVICIOS` in `config.py`. Each affects slot gene
 
 ```bash
 # Install dependencies
-pip install -r requirements-dev.txt
+pip install -r requirements.txt
 
 # Start server (development)
 uvicorn app.main:app --reload --port 8000
@@ -123,11 +131,14 @@ curl http://localhost:8000/health
 
 ```ini
 WHATSAPP_PHONE_NUMBER_ID=   # Required
-WHATSAPP_ACCESS_TOKEN=       # Required
+WHATSAPP_ACCESS_TOKEN=       # Required — must be a permanent System User token
 WHATSAPP_VERIFY_TOKEN=       # Required
+WHATSAPP_APP_SECRET=         # Required in production — enables HMAC webhook signature verification
 GOOGLE_CALENDAR_ID=          # Required
 GOOGLE_CREDENTIALS_PATH=     # Path to service account JSON (default: credentials.json)
-WHATSAPP_APP_SECRET=         # Optional — enables HMAC webhook signature verification
+ADMIN_PHONE=                 # Required — digits only, no +. Receives watchdog alerts and /estado
+NGROK_DOMAIN=                # Required — static ngrok domain (no https://)
+NGROK_TOKEN=                 # Required — ngrok auth token (used by make services)
 LOG_LEVEL=INFO               # Optional — DEBUG | INFO | WARNING | ERROR
 LOG_FILE=                    # Optional — path for rotating log file
 ```
