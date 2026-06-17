@@ -48,6 +48,11 @@ servicios:
     precio: 30
     duracion_min: 60
     presencia_cliente_min: 180
+  tinte:
+    nombre: "Tinte"
+    precio: 40
+    duracion_min: 60
+    presencia_cliente_min: 180
 
 # Ventana de busqueda de citas en Google Calendar (dias desde hoy).
 lookaheads_dias:

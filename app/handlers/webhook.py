@@ -44,7 +44,7 @@ _handler_semaphore = threading.Semaphore(MAX_CONCURRENT_HANDLERS)
 # ── Rate limiters and deduplicator ─────────────────────────────────────────
 ip_rate_limiter    = RateLimiter(limit=60, window_seconds=60)
 phone_rate_limiter = RateLimiter(limit=20, window_seconds=60)
-_deduplicator      = MessageDeduplicator(ttl_minutes=10)
+_deduplicator      = MessageDeduplicator(ttl_minutes=120)
 
 
 def _handle_with_semaphore(phone: str, text, interactive_id):
