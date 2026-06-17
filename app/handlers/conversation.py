@@ -129,6 +129,12 @@ def clean_expired_states():
         with _phone_locks_guard:
             _phone_locks.pop(p, None)
 
+    # Purge slot locks for past dates — safe because past slots can't be booked
+    from app.services.calendar.locks import slot_locks
+    purged = slot_locks.purge_before(now.date())
+    if purged:
+        logger.info(f"[CONV] Purged {purged} past slot locks")
+
     # Purge stale citas cache entries
     now_ts = _time.time()
     with cal._citas_cache_lock:

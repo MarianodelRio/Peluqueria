@@ -2,7 +2,7 @@
 
 negocio:
   nombre: "DM Barber Shop"
-  telefono_contacto: "+34 676 27 38 00"
+  telefono_contacto: "+34 682 21 44 69"
   admin_phone: ""   # Fallback si no se define ADMIN_PHONE en .env. Solo digitos, sin '+' ni espacios.
 
 # Horario de apertura por dia de la semana.

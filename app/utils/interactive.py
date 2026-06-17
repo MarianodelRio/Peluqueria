@@ -101,7 +101,7 @@ def build_main_menu() -> dict:
         )
 
     # Event active → list with 4 rows
-    event_label = _trunc(f"Cita {EVENTO_NOMBRE}", 24)
+    event_label = _trunc(f"🌟 Cita {EVENTO_NOMBRE}", 24)
     rows = [
         _row("menu_book",       "📅 Pedir cita"),
         _row("menu_move",       "📦 Mover cita"),
