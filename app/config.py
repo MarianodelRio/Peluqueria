@@ -305,12 +305,14 @@ EVENTO_NOMBRE: str = _evento_cfg.get("nombre", "") if EVENTO_ACTIVO else ""
 # EVENTO_DIAS: dict[str, list] — keys are ISO date strings e.g. "2026-12-20"
 EVENTO_DIAS: dict = dict(_evento_cfg.get("dias") or {}) if EVENTO_ACTIVO else {}
 
-# ── Admin command ─────────────────────────────────────────────────────────
+# ── Admin commands ────────────────────────────────────────────────────────
 # ADMIN_PHONE: digits-only WhatsApp number that may trigger admin commands.
 # Empty string means admin commands are disabled.
 ADMIN_PHONE: str = os.getenv("ADMIN_PHONE") or _cfg["negocio"].get("admin_phone") or ""
-# The text command that triggers the status report (case-insensitive match).
-ADMIN_COMANDO: str = "/estado"
+# Set of text commands recognised from ADMIN_PHONE (case-insensitive match).
+ADMIN_COMANDOS: frozenset = frozenset({"/status", "/help", "/logs", "/restart"})
+# Path to the rotating log file — used by the /logs admin command.
+LOG_FILE: str = os.getenv("LOG_FILE", "")
 
 # ── WhatsApp credentials ───────────────────────────────────────────────────
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")

@@ -208,7 +208,7 @@ def build_appointments_view(citas: list) -> dict:
         d = c['start'].date()
         hora = c['start'].strftime('%H:%M')
         body += f"📅 {format_date_es(d).capitalize()} — 🕒 {hora}\n"
-    body += "\nSi necesitas algo más, escríbenos cuando quieras 😊"
+    body += "\nSi necesitas algo más, escríbenos cuando quieras"
 
     return _interactive_buttons(
         header=f"📋 {BUSINESS_NAME}",

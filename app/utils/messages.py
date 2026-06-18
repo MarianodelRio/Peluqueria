@@ -33,7 +33,7 @@ def msg_sin_slots() -> str:
 
 
 def msg_slot_no_disponible() -> str:
-    return "Ese horario ya no está disponible 😕"
+    return "Ese horario ya no está disponible"
 
 
 def msg_error_creando_cita() -> str:
