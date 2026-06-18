@@ -129,7 +129,7 @@ def reset_conversation_state():
 class TestStatusCommand:
 
     def test_estado_from_admin_reaches_normal_flow(self, mock_wa, mock_cal):
-        """/estado is NOT in ADMIN_COMANDOS, so it must reach normal flow (menu shown)."""
+        """/estado not in ADMIN_COMANDOS — must reach normal flow (menu shown)."""
         import app.handlers.conversation as conv
 
         with patch(
@@ -215,7 +215,7 @@ class TestStatusCommand:
         mock_report.assert_not_called()
 
     def test_status_state_step_not_modified(self, mock_wa):
-        """After /status admin command, state.step must remain at its pre-command value."""
+        """After /status, state.step must stay at its pre-command value."""
         import app.handlers.conversation as conv
 
         # Pre-seed a non-MENU state for the admin phone
@@ -281,7 +281,7 @@ class TestLogsCommand:
         mock_wa["text"].assert_called_once_with(ADMIN, "linea1\nlinea2\n")
 
     def test_logs_from_admin_no_log_file(self, mock_wa):
-        """/logs when LOG_FILE is not configured must return an error string (no raise)."""
+        """/logs when LOG_FILE is not set must return an error string (never raise)."""
         import app.handlers.conversation as conv
 
         with patch(
