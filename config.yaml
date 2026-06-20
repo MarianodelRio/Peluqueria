@@ -10,21 +10,18 @@ negocio:
 # Cada dia es una lista de rangos [inicio, fin] en formato HH:MM.
 # Los dias no listados se consideran cerrados.
 horario:
-  lunes:
-    - ["10:00", "14:00"]
-    - ["17:00", "21:00"]
   martes:
     - ["10:00", "14:00"]
-    - ["17:00", "21:00"]
+    - ["17:00", "21:30"]
   miercoles:
     - ["10:00", "14:00"]
-    - ["17:00", "21:00"]
+    - ["17:00", "21:30"]
   jueves:
     - ["10:00", "14:00"]
-    - ["17:00", "21:00"]
+    - ["17:00", "21:30"]
   viernes:
     - ["10:00", "14:00"]
-    - ["17:00", "21:00"]
+    - ["17:00", "21:30"]
   sabado:
     - ["10:00", "14:00"]
 
@@ -50,7 +47,7 @@ servicios:
     presencia_cliente_min: 180
   tinte:
     nombre: "Tinte"
-    precio: 40
+    precio: 50
     duracion_min: 60
     presencia_cliente_min: 180
 
@@ -80,4 +77,9 @@ envios:
 #       "2026-12-20": [["10:00", "14:00"]]
 #       "2026-12-21": [["10:00", "14:00"], ["17:00", "20:00"]]
 evento:
-  activo: false
+     activo: true
+     nombre: "Feria Posadas"
+     dias:
+       "2026-10-08": [["10:00", "14:00"], ["17:00", "20:00"]]
+       "2026-10-09": [["10:00", "14:00"], ["17:00", "20:00"]]
+       "2026-10-10": [["10:00", "14:00"], ["17:00", "20:00"]]
