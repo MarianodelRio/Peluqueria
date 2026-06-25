@@ -345,7 +345,7 @@ WHATSAPP_TEMPLATE_LANG = "es_ES"
 INTERACTIVE_FOOTER = "_Cualquier texto te llevará de vuelta al menú principal_"
 
 # ── HTTP / API timeouts ────────────────────────────────────────────────────
-GOOGLE_API_TIMEOUT_SEC = 30
+GOOGLE_API_TIMEOUT_SEC = 10
 HTTP_TIMEOUT_SEC = 10
 
 # ── Slot availability cache ────────────────────────────────────────────────

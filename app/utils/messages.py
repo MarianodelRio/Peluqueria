@@ -60,3 +60,13 @@ def msg_cita_movida(d: date, hora: str, servicio: dict) -> str:
 
 def msg_cita_no_encontrada() -> str:
     return "No se encontró esa cita."
+
+
+def msg_reintentar() -> str:
+    return ("Uy, ha habido un problema de conexión y puede que tu última acción "
+            "no se completara. Escríbeme de nuevo y seguimos. 🙏")
+
+
+def msg_accion_ok_sin_confirmar() -> str:
+    return ("Tu solicitud se ha registrado correctamente ✅, aunque no pudimos "
+            "enviarte la confirmación. Puedes revisarla en «Ver mis citas».")

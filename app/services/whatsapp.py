@@ -1,6 +1,7 @@
 # services/whatsapp.py
 """WhatsApp Cloud API integration."""
 import logging
+import threading
 import time
 import httpx
 from app.config import WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN
@@ -24,6 +25,28 @@ _client = httpx.Client(timeout=10)
 
 _MAX_RETRIES = 2
 _RETRY_DELAYS = [1.0, 2.0]  # exponential backoff: 1s → 2s
+_RETRY_AFTER_CAP = 5.0
+
+_delivery = threading.local()
+
+
+def begin_delivery_tracking() -> None:
+    _delivery.attempted = False
+    _delivery.delivered = False
+
+
+def reply_was_delivered() -> bool:
+    if not getattr(_delivery, "attempted", False):
+        return True
+    return getattr(_delivery, "delivered", False)
+
+
+def _retry_after_seconds(response) -> float | None:
+    val = response.headers.get("retry-after")
+    try:
+        return float(val) if val else None
+    except ValueError:
+        return None
 
 
 def _post(body: dict) -> bool:
@@ -39,12 +62,24 @@ def _post(body: dict) -> bool:
             return True
         except httpx.HTTPStatusError as e:
             status = e.response.status_code
+            if status == 429:
+                if attempt < _MAX_RETRIES:
+                    ra = _retry_after_seconds(e.response)
+                    base = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+                    delay = min(ra if ra is not None else base, _RETRY_AFTER_CAP)
+                    logger.warning(f"[WA] HTTP 429, retry {attempt+1}/{_MAX_RETRIES} (delay {delay:.1f}s)")
+                    time.sleep(delay)
+                    continue
+                logger.error("[WA] HTTP 429 tras reintentos")
+                metrics.inc("whatsapp_errors")
+                return False
             if status < 500:
                 # 4xx: bad payload or auth error — don't log response body
                 # (may contain tokens)
                 logger.error(
-                    f"[WA] HTTP {status} (client error) — check credentials/payload"
+                    f"[WA] HTTP {status} (client error) — revisar credenciales/payload"
                 )
+                metrics.inc("whatsapp_errors")
                 return False
             delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
             if attempt < _MAX_RETRIES:
@@ -82,6 +117,9 @@ def send_text_message(to: str, text: str) -> bool:
         "type": "text",
         "text": {"body": text, "preview_url": False},
     })
+    _delivery.attempted = True
+    if ok:
+        _delivery.delivered = True
     if ok:
         logger.info(f"[WA] text → {_mask(to)}: {text[:60]}")
     return ok
@@ -98,6 +136,9 @@ def send_interactive(to: str, payload: dict) -> bool:
         "to": to,
         **payload,
     })
+    _delivery.attempted = True
+    if ok:
+        _delivery.delivered = True
     if ok:
         logger.info(
             "[WA] interactive(%s) → %s",
@@ -118,6 +159,9 @@ def send_template(to: str, template_name: str, lang: str, components: list) -> b
             "components": components,
         },
     })
+    _delivery.attempted = True
+    if ok:
+        _delivery.delivered = True
     if ok:
         logger.info(f"[WA] template({template_name}) → {_mask(to)}")
     return ok

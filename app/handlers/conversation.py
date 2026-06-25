@@ -45,7 +45,9 @@ from app.utils.messages import (
     msg_cita_confirmada, msg_cancelacion_ok,
     msg_sin_citas, msg_error_creando_cita, msg_evento_sin_dias,
     msg_cita_movida, msg_cita_no_encontrada,
+    msg_reintentar, msg_accion_ok_sin_confirmar,
 )
+from app.utils import metrics
 from app.utils.parser import parse_nombre
 
 logger = logging.getLogger(__name__)
@@ -93,6 +95,7 @@ _states: dict[str, ConversationState] = {}
 # Per-phone lock — prevents concurrent processing of messages from the same number
 _phone_locks: dict[str, threading.Lock] = {}
 _phone_locks_guard = threading.Lock()
+_ctx = threading.local()
 
 
 def _get_phone_lock(phone: str) -> threading.Lock:
@@ -100,6 +103,14 @@ def _get_phone_lock(phone: str) -> threading.Lock:
         if phone not in _phone_locks:
             _phone_locks[phone] = threading.Lock()
         return _phone_locks[phone]
+
+
+def _safe_fallback(phone: str) -> None:
+    _clear(phone)
+    if getattr(_ctx, "committed", False):
+        wa.send_text_message(phone, msg_accion_ok_sin_confirmar())
+    else:
+        wa.send_text_message(phone, msg_reintentar())
 
 
 # ── State store helpers ────────────────────────────────────────────────────
@@ -165,7 +176,19 @@ def handle_message(phone: str, text: Optional[str], interactive_id: Optional[str
     number (e.g. WhatsApp retries) are serialised and don't corrupt state.
     """
     with _get_phone_lock(phone):
-        _process_message(phone, text, interactive_id)
+        wa.begin_delivery_tracking()
+        _ctx.committed = False
+        try:
+            _process_message(phone, text, interactive_id)
+        except Exception:
+            logger.exception("[CONV] Error procesando mensaje de %s", phone)
+            metrics.inc("handler_errors")
+            _safe_fallback(phone)
+            return
+        if not wa.reply_was_delivered():
+            logger.warning("[CONV] Respuesta no entregada a %s; fallback", phone)
+            metrics.inc("reply_delivery_failed")
+            _safe_fallback(phone)
 
 
 def _process_message(phone: str, text: Optional[str], interactive_id: Optional[str]):
@@ -555,6 +578,7 @@ def _handle_book_enter_name(phone: str, state: ConversationState, value: str):
         _to_menu(phone)
 
     else:
+        _ctx.committed = True
         wa.send_interactive(
             phone,
             build_back_to_menu_message(
@@ -628,6 +652,7 @@ def _execute_mover_cita(phone: str, state: ConversationState):
         _to_menu(phone)
 
     else:
+        _ctx.committed = True
         wa.send_interactive(
             phone,
             build_back_to_menu_message(
@@ -665,6 +690,7 @@ def _handle_cancel_select(phone: str, state: ConversationState, value: str):
         return
 
     if cal.cancelar_cita(event_id):
+        _ctx.committed = True
         wa.send_interactive(phone, build_back_to_menu_message(msg_cancelacion_ok()))
         _clear(phone)
     else:
@@ -690,6 +716,7 @@ def _handle_reminder_response(phone: str, interactive_id: str):
             _to_menu(phone)
             return
         if cal.confirmar_cita(event_id):
+            _ctx.committed = True
             wa.send_text_message(phone, "¡Tu cita está confirmada! ✅")
         else:
             wa.send_text_message(
@@ -705,6 +732,7 @@ def _handle_reminder_response(phone: str, interactive_id: str):
             _to_menu(phone)
             return
         if cal.cancelar_cita(event_id):
+            _ctx.committed = True
             wa.send_interactive(phone, build_back_to_menu_message(msg_cancelacion_ok()))
             _clear(phone)
         else:

@@ -1031,3 +1031,97 @@ class TestMoveFlow:
         rows = menu["interactive"]["action"]["sections"][0]["rows"]
         ids = [r["id"] for r in rows]
         assert "menu_move" in ids
+
+
+# ── Handle message resilience ──────────────────────────────────────────────────
+
+class TestHandleMessageResilience:
+    """Tests for the two-layer delivery resilience wrapper in handle_message."""
+
+    def test_exception_in_process_triggers_fallback(self):
+        """When _process_message raises, the fallback message is sent,
+        state is cleared, and handler_errors is incremented."""
+        from unittest.mock import patch, MagicMock
+        from app.utils import metrics
+        import app.handlers.conversation as conv
+
+        before = metrics._counters.get("handler_errors", 0)
+
+        with patch("app.handlers.conversation.wa") as mock_wa_obj, \
+             patch("app.handlers.conversation._process_message",
+                   side_effect=RuntimeError("boom")):
+            mock_wa_obj.begin_delivery_tracking.return_value = None
+            mock_wa_obj.reply_was_delivered.return_value = True
+            mock_wa_obj.send_text_message.return_value = True
+
+            conv._states.clear()
+            conv.handle_message(PHONE, text="hola", interactive_id=None)
+
+        assert metrics._counters.get("handler_errors", 0) > before
+        assert conv._states.get(PHONE) is None
+        calls = [str(c) for c in mock_wa_obj.send_text_message.call_args_list]
+        assert any("problema de conexión" in c for c in calls)
+
+    def test_undelivered_reply_triggers_fallback(self):
+        """When _process_message succeeds but reply_was_delivered returns False,
+        the fallback is sent and reply_delivery_failed is incremented."""
+        from unittest.mock import patch
+        from app.utils import metrics
+        import app.handlers.conversation as conv
+
+        before = metrics._counters.get("reply_delivery_failed", 0)
+
+        with patch("app.handlers.conversation.wa") as mock_wa_obj, \
+             patch("app.handlers.conversation._process_message"):
+            mock_wa_obj.begin_delivery_tracking.return_value = None
+            mock_wa_obj.reply_was_delivered.return_value = False
+            mock_wa_obj.send_text_message.return_value = True
+
+            conv._states.clear()
+            conv.handle_message(PHONE, text="hola", interactive_id=None)
+
+        assert metrics._counters.get("reply_delivery_failed", 0) > before
+        mock_wa_obj.send_text_message.assert_called()
+
+    def test_committed_exception_sends_ok_message(self):
+        """When _ctx.committed is True before exception, fallback sends
+        the 'registrado correctamente' message."""
+        from unittest.mock import patch
+        import app.handlers.conversation as conv
+
+        def commit_then_raise(phone, text, interactive_id):
+            conv._ctx.committed = True
+            raise RuntimeError("network error after write")
+
+        with patch("app.handlers.conversation.wa") as mock_wa_obj, \
+             patch("app.handlers.conversation._process_message",
+                   side_effect=commit_then_raise):
+            mock_wa_obj.begin_delivery_tracking.return_value = None
+            mock_wa_obj.reply_was_delivered.return_value = True
+            mock_wa_obj.send_text_message.return_value = True
+
+            conv._states.clear()
+            conv.handle_message(PHONE, text="hola", interactive_id=None)
+
+        calls = [str(c) for c in mock_wa_obj.send_text_message.call_args_list]
+        assert any("registrado correctamente" in c for c in calls)
+
+    def test_happy_path_no_fallback(self):
+        """When _process_message succeeds and reply_was_delivered is True,
+        neither fallback message is sent."""
+        from unittest.mock import patch
+        import app.handlers.conversation as conv
+
+        with patch("app.handlers.conversation.wa") as mock_wa_obj, \
+             patch("app.handlers.conversation._process_message"):
+            mock_wa_obj.begin_delivery_tracking.return_value = None
+            mock_wa_obj.reply_was_delivered.return_value = True
+            mock_wa_obj.send_text_message.return_value = True
+
+            conv._states.clear()
+            conv.handle_message(PHONE, text="hola", interactive_id=None)
+
+        for call in mock_wa_obj.send_text_message.call_args_list:
+            text_arg = str(call)
+            assert "problema de conexión" not in text_arg
+            assert "registrado correctamente" not in text_arg
