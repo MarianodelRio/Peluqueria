@@ -188,9 +188,8 @@ class TestRetry429:
         assert metrics._counters.get("whatsapp_errors", 0) > before
 
     def test_retry_after_header_is_capped(self, mock_httpx_client):
-        """When 429 includes Retry-After: 9999, sleep is called with at most _RETRY_AFTER_CAP."""
+        """When 429 includes Retry-After: 9999, sleep is capped at _RETRY_AFTER_CAP."""
         from app.services.whatsapp import send_text_message, _RETRY_AFTER_CAP
-        import app.services.whatsapp as wa_mod
 
         err_resp = MagicMock()
         err_resp.status_code = 429
@@ -205,8 +204,11 @@ class TestRetry429:
 
         sleep_calls = []
 
-        with patch.object(mock_httpx_client, "post", side_effect=post_side_effect), \
-             patch("app.services.whatsapp.time.sleep", side_effect=lambda s: sleep_calls.append(s)):
+        sleep_effect = lambda s: sleep_calls.append(s)  # noqa: E731
+        with (
+            patch.object(mock_httpx_client, "post", side_effect=post_side_effect),
+            patch("app.services.whatsapp.time.sleep", side_effect=sleep_effect),
+        ):
             send_text_message("34600000001", "Hola")
 
         assert len(sleep_calls) > 0
@@ -217,7 +219,8 @@ class TestRetry429:
 
 class TestDeliveryTracking:
     def test_delivered_true_after_success(self, mock_httpx_client):
-        """After begin_delivery_tracking + successful send, reply_was_delivered is True."""
+        """After begin_delivery_tracking + successful send,
+        reply_was_delivered is True."""
         from app.services.whatsapp import (
             begin_delivery_tracking, send_text_message, reply_was_delivered
         )
@@ -242,8 +245,9 @@ class TestDeliveryTracking:
         assert reply_was_delivered() is False
 
     def test_default_true_without_tracking(self):
-        """reply_was_delivered returns True when begin_delivery_tracking was never called."""
-        from app.services.whatsapp import _delivery, begin_delivery_tracking, reply_was_delivered
+        """reply_was_delivered returns True when begin_delivery_tracking
+        was never called."""
+        from app.services.whatsapp import _delivery, reply_was_delivered
         if hasattr(_delivery, "attempted"):
             del _delivery.attempted
         assert reply_was_delivered() is True
