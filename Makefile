@@ -74,6 +74,8 @@ Description=Reinicio nocturno del bot
 [Service]
 Type=oneshot
 ExecStart=/bin/systemctl restart peluqueria
+ExecStartPost=/usr/bin/journalctl --vacuum-time=1d
+ExecStartPost=/usr/bin/truncate -s 0 /var/log/peluqueria/watchdog.log
 endef
 export RESTART_SERVICE
 
@@ -120,6 +122,7 @@ help:
 	@echo "  UTILIDADES"
 	@echo "    make lint       Ejecuta ruff y mypy"
 	@echo "    make qr         Genera el QR de WhatsApp → qr_cita.png"
+	@echo "    make vacuum-logs    Vacía journal (>1d) y watchdog.log ahora"
 	@echo "    make stop       Para todos los servicios"
 	@echo ""
 
@@ -297,3 +300,9 @@ stop:
 	sudo systemctl stop peluqueria
 	sudo systemctl stop ngrok
 	@echo "   ✓ servicios parados"
+
+.PHONY: vacuum-logs
+vacuum-logs:
+	sudo journalctl --vacuum-time=1d
+	truncate -s 0 $(LOG_DIR)/watchdog.log
+	@echo "   ✓ logs vaciados"

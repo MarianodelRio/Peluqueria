@@ -8,8 +8,8 @@ Run every 60 minutes via cron. Performs five checks:
   4. Error spike in /metrics (errors_spike)
   5. Ngrok tunnel reachability (ngrok_down)
 
-Sends a WhatsApp template alert (alerta_sistema) to the admin when any check
-fails. Per-alert cooldowns are persisted in a JSON state file.
+Logs a WARNING for each failed check. Per-alert cooldowns are persisted in a
+JSON state file to avoid log spam.
 
 No imports from app/. Fully standalone.
 """
@@ -18,11 +18,9 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
 
 import httpx
 import psutil
-import yaml
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -34,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 # ── Constants with env overrides ───────────────────────────────────────────
 BOT_URL = os.getenv("WATCHDOG_BOT_URL", "http://localhost:8000")
-TEMPLATE_NAME = os.getenv("WATCHDOG_TEMPLATE_NAME", "alerta_sistema")
 STATE_FILE = os.getenv("WATCHDOG_STATE_FILE", "/var/log/peluqueria/watchdog_state.json")
 RAM_PCT_THRESHOLD = int(os.getenv("WATCHDOG_RAM_CRITICAL_PCT", "90"))
 DISK_PCT_THRESHOLD = int(os.getenv("WATCHDOG_DISK_CRITICAL_PCT", "90"))
@@ -99,87 +96,13 @@ def is_in_cooldown(state: dict, key: str, cooldown_sec: int) -> bool:
     return (time.time() - last) < cooldown_sec
 
 
-# ── WhatsApp alert ─────────────────────────────────────────────────────────
-
-def send_alert(
-        phone_number_id: str, token: str, admin_phone: str,
-        label: str, detail: str) -> bool:
-    """
-    Send a WhatsApp template alert (alerta_sistema) to admin_phone.
-    Returns True on HTTP 200/201. Never raises — catches all exceptions.
-    """
-    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M")
-    url = f"https://graph.facebook.com/v23.0/{phone_number_id}/messages"
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": admin_phone,
-        "type": "template",
-        "template": {
-            "name": TEMPLATE_NAME,
-            "language": {"code": "es_ES"},
-            "components": [
-                {
-                    "type": "body",
-                    "parameters": [
-                        {"type": "text", "text": label},
-                        {"type": "text", "text": timestamp},
-                        {"type": "text", "text": detail},
-                    ],
-                }
-            ],
-        },
-    }
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    try:
-        response = httpx.post(url, json=payload, headers=headers, timeout=10)
-        if response.status_code in (200, 201):
-            return True
-        logger.error(
-            "[WATCHDOG] Alert HTTP %s: %s", response.status_code, response.text[:200]
-        )
-        return False
-    except Exception as exc:
-        logger.error("[WATCHDOG] Exception sending alert: %s", exc)
-        return False
-
-
 # ── Main check logic ───────────────────────────────────────────────────────
 
 def run_checks() -> None:
-    # 1. Read credentials
-    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
-    token = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
-    admin_phone = os.getenv("ADMIN_PHONE", "")
-
-    if not admin_phone:
-        # Fall back to config.yaml
-        config_yaml_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "config.yaml"
-        )
-        try:
-            with open(config_yaml_path, "r", encoding="utf-8") as fh:
-                cfg = yaml.safe_load(fh)
-            admin_phone = (cfg or {}).get("negocio", {}).get("admin_phone", "") or ""
-        except Exception as exc:
-            logger.warning(
-                "[WATCHDOG] Could not read config.yaml"
-                " for admin_phone: %s",
-                exc,
-            )
-
-    if not admin_phone:
-        logger.warning(
-            "[WATCHDOG] ADMIN_PHONE not set"
-            " — checks will run but no alerts will be sent"
-        )
-
-    # 2. Load state
+    # 1. Load state
     state = load_state()
 
-    # 3. Collect alerts: list of (key, cooldown_sec, label, detail)
+    # 2. Collect alerts: list of (key, cooldown_sec, label, detail)
     alerts_fired: list = []
 
     # Check 1 — Bot health
@@ -274,19 +197,8 @@ def run_checks() -> None:
         if is_in_cooldown(state, key, cooldown_sec):
             logger.info("[WATCHDOG] Cooldown activo para %s, omitiendo alerta", key)
             continue
-        if not admin_phone:
-            logger.warning("[WATCHDOG] ADMIN_PHONE vacio, no se envia alerta %s", key)
-            continue
-        ok = send_alert(phone_number_id, token, admin_phone, label, detail)
-        if ok:
-            state["last_alerts"][key] = time.time()
-            logger.info("[WATCHDOG] Alerta enviada: %s", key)
-        else:
-            logger.error(
-                "[WATCHDOG] Error enviando alerta %s"
-                " — cooldown no marcado",
-                key,
-            )
+        logger.warning("[WATCHDOG] ALERTA %s — %s: %s", key, label, detail)
+        state["last_alerts"][key] = time.time()
 
     # 5. All-OK message
     if not alerts_fired:

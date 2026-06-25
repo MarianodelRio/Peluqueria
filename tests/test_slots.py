@@ -136,7 +136,7 @@ class TestGetBaseSlotsForDay:
     def test_duracion_120_base_slots_have_30min_step(self):
         tuesday = date(2026, 3, 24)
         slots = get_base_slots_for_day(tuesday, presencia_cliente_min=120)
-        assert len(slots) == 10
+        assert len(slots) == 11
         assert slots[0] == "10:00"
         assert slots[1] == "10:30"
         assert slots[5] == "17:00"

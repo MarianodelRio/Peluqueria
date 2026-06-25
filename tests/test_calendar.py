@@ -208,17 +208,18 @@ class TestGetSlotsDisponibles:
         """Slots that would require the client to stay past closing are excluded
         (presencia_cliente_min=180)."""
         cal, svc = cal_with_service
-        d = date(2026, 3, 24)  # Tuesday: tarde 17:00-21:00
+        d = date(2026, 3, 24)  # Tuesday: tarde 17:00-21:30
         svc.events.return_value.list.return_value.execute.return_value = {"items": []}
         slots = cal.get_slots_disponibles(
             d, duracion_min=60, presencia_cliente_min=180
         )
-        # 17:00+180min=20:00 ≤ 21:00 ✓; 18:00+180min=21:00 ≤ 21:00 ✓;
-        # 18:30+180min=21:30 > 21:00 ✗
+        # 17:00+180min=20:00 ≤ 21:30 ✓; 18:30+180min=21:30 ≤ 21:30 ✓;
+        # 19:00+180min=22:00 > 21:30 ✗
         assert "17:00" in slots
         assert "17:30" in slots
         assert "18:00" in slots
-        assert "18:30" not in slots
+        assert "18:30" in slots
+        assert "19:00" not in slots
 
     def test_get_slots_disponibles_mechas_collision_uses_60min_window(
         self, cal_with_service
@@ -337,10 +338,12 @@ class TestCrearCita:
 class TestReservarCita:
     def test_success(self, cal_with_service):
         cal, svc = cal_with_service
-        with patch.object(cal, "slot_sigue_libre", return_value=True), \
-             patch.object(cal, "crear_cita", return_value="new_evt"):
+        with (
+            patch("app.services.calendar.service.slot_sigue_libre", return_value=True),
+            patch("app.services.calendar.service.crear_cita", return_value="new_evt"),
+        ):
             event_id, reason = cal.reservar_cita(
-                date(2026, 3, 23), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
+                date(2026, 3, 24), "10:00", "Ana", "34600000001", SERVICIOS["corte"]
             )
         assert event_id == "new_evt"
         assert reason is None
