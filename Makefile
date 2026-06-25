@@ -74,6 +74,7 @@ Description=Reinicio nocturno del bot
 [Service]
 Type=oneshot
 ExecStart=/bin/systemctl restart peluqueria
+ExecStartPost=/usr/bin/journalctl --rotate
 ExecStartPost=/usr/bin/journalctl --vacuum-time=1d
 ExecStartPost=/usr/bin/truncate -s 0 /var/log/peluqueria/watchdog.log
 endef
