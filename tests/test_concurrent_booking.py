@@ -138,6 +138,18 @@ def extract_first_row_id(payload: dict | None) -> str | None:
     return next((r["id"] for r in rows if not r["id"].startswith("back_")), None)
 
 
+def extract_row_ids(payload: dict | None) -> list[str]:
+    """Return all non-navigation row IDs from an interactive list payload."""
+    rows = (
+        (payload or {})
+        .get("interactive", {})
+        .get("action", {})
+        .get("sections", [{}])[0]
+        .get("rows", [])
+    )
+    return [r["id"] for r in rows if not r["id"].startswith("back_")]
+
+
 def is_period_select(payload: dict | None) -> bool:
     """True if the bot is asking morning/afternoon."""
     btns = (payload or {}).get("interactive", {}).get("action", {}).get("buttons", [])
@@ -173,7 +185,7 @@ def _reset_state() -> None:
 
 # ── Single-user booking flow ───────────────────────────────────────────────
 
-def run_user_booking(phone: str, client: TestClient) -> dict:
+def run_user_booking(phone: str, client: TestClient, slot_pick: int = 0) -> dict:
     """Drive one user through the full 7-step booking flow.
 
     Each client.post() blocks until the background handler finishes (including
@@ -204,10 +216,11 @@ def run_user_booking(phone: str, client: TestClient) -> dict:
     if is_period_select(resp):
         resp = step("periodo", interactive_id="period_morning")
 
-    hour_id = extract_first_row_id(resp)
-    if not hour_id:
+    hour_ids = extract_row_ids(resp)
+    if not hour_ids:
         result["outcome"] = "error"
         return result
+    hour_id = hour_ids[slot_pick % len(hour_ids)]
     step("hora", interactive_id=hour_id)
 
     resp = step("nombre", text=f"Test {phone[-4:]}")
@@ -252,11 +265,13 @@ def _print_summary(
         )
     booked   = sum(1 for r in results.values() if r["outcome"] == "booked")
     conflict = sum(1 for r in results.values() if r["outcome"] == "conflict")
+    errors   = sum(1 for r in results.values() if r["outcome"] == "error")
     no_resp  = sum(1 for r in results.values() if r["outcome"] == "no_response")
     hung     = sum(1 for t in threads if t.is_alive())
     print(f"  {'─'*60}")
     print(f"  Reservas OK     : {booked}/{n}")
     print(f"  Conflictos slot : {conflict}/{n}  (respuesta correcta)")
+    print(f"  Errores         : {errors}/{n}  ← debe ser 0")
     print(f"  Sin respuesta   : {no_resp}/{n}  ← debe ser 0")
     print(f"  Threads colgados: {hung}/{n}  ← debe ser 0")
     if times:
@@ -280,12 +295,13 @@ def test_concurrent_booking(n_users, client, calendar_spy, whatsapp_spy):
     barrier = threading.Barrier(n_users, timeout=15)
     results: dict[str, dict] = {}
 
-    def run(phone: str) -> None:
+    def run(idx: int, phone: str) -> None:
         barrier.wait()   # release all threads simultaneously
-        results[phone] = run_user_booking(phone, client)
+        results[phone] = run_user_booking(phone, client, slot_pick=idx)
 
     threads = [
-        threading.Thread(target=run, args=(p,), daemon=True) for p in phones
+        threading.Thread(target=run, args=(i, p), daemon=True)
+        for i, p in enumerate(phones)
     ]
     for t in threads:
         t.start()
@@ -296,10 +312,14 @@ def test_concurrent_booking(n_users, client, calendar_spy, whatsapp_spy):
 
     hung    = [p for p, t in zip(phones, threads) if t.is_alive()]
     no_resp = [p for p, r in results.items() if r.get("outcome") == "no_response"]
+    errors  = [p for p, r in results.items() if r.get("outcome") == "error"]
 
     assert not hung, (
         f"Threads colgados (posible deadlock o timeout Calendar): {hung}"
     )
     assert not no_resp, (
         f"Usuarios sin respuesta (EL BUG): {no_resp}"
+    )
+    assert not errors, (
+        f"Usuarios con error en el flujo: {errors}"
     )
