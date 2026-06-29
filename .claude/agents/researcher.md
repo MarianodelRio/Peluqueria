@@ -27,7 +27,7 @@ You research and return **actionable findings**. You never invent results — if
 - **Runtime**: Python 3.10+, FastAPI, uvicorn, APScheduler 3.x
 - **External APIs**: WhatsApp Cloud API (Meta Graph API v18+), Google Calendar API v3
 - **Auth**: Google Service Account credentials, WhatsApp Bearer token + HMAC webhook verification
-- **Deployment**: Linux/systemd, development via ngrok
+- **Deployment**: GCP VM + systemd + nginx (TLS reverse proxy) + DuckDNS (dynamic DNS) + Let's Encrypt (SSL)
 - **State**: In-memory (no database). Google Calendar is the persistence layer.
 - **Tests**: pytest with mocked external APIs (`tests/conftest.py`)
 

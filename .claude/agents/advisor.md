@@ -24,7 +24,7 @@ WhatsApp booking bot for a barber shop:
 - **APScheduler** for background jobs: sync manual bookings every 5 min, reminders every hour, state cleanup every 10 min
 - **In-memory state**: conversation state (`_states` dict) and slot availability cache (30s TTL)
 - **Threading**: per-phone locks (conversation), per-slot locks (booking race prevention)
-- **Deployment**: Linux + systemd or nohup; development with ngrok
+- **Deployment**: GCP VM + systemd + nginx reverse proxy + DuckDNS dynamic DNS; uvicorn binds to 127.0.0.1 only
 
 ## Architectural decisions already made (do not revisit unless asked)
 
@@ -71,7 +71,8 @@ WhatsApp booking bot for a barber shop:
 - Health check endpoint design for load balancers
 - Log level strategy for production vs debugging
 - Systemd service configuration for reliability
-- ngrok alternatives for staging environments
+- nginx reverse proxy configuration (TLS termination, proxy headers, rate limiting)
+- DuckDNS dynamic DNS and Let's Encrypt cert renewal strategy
 
 ## How you respond
 

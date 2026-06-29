@@ -176,15 +176,11 @@ def create_scheduler() -> BackgroundScheduler:
     if ENVIAR_CONFIRMACIONES:
         _jobs.append((job_sync_citas_manuales, SYNC_MANUAL_INTERVAL_MIN))
     else:
-        logger.info(
-            "[SCHEDULER] job_sync_citas_manuales not registered (ENVIAR_CONFIRMACIONES=False)"
-        )
+        logger.info("[SCHEDULER] sync_citas_manuales skipped (CONFIRMACIONES=False)")
     if ENVIAR_RECORDATORIOS:
         _jobs.append((job_enviar_recordatorios, RECORDATORIO_INTERVAL_MIN))
     else:
-        logger.info(
-            "[SCHEDULER] job_enviar_recordatorios not registered (ENVIAR_RECORDATORIOS=False)"
-        )
+        logger.info("[SCHEDULER] enviar_recordatorios skipped (RECORDATORIOS=False)")
     _jobs.append((job_limpiar_estados_conversacion, LIMPIAR_ESTADOS_INTERVAL_MIN))
 
     for fn, interval in _jobs:

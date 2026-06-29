@@ -42,16 +42,19 @@ Cliente WhatsApp
       │
       ▼
 Meta (WhatsApp Cloud API)
-      │  webhook HTTPS
+      │  webhook HTTPS → peluqueriabot.duckdns.org
       ▼
-VM Linux (Ubuntu 22.04) — Google Cloud
-  ├── ngrok              (túnel HTTPS → localhost:8000)
+VM Linux (Ubuntu 22.04) — Google Cloud (104.196.210.121)
+  ├── nginx              (TLS :443 → localhost:8000)
   ├── FastAPI + Uvicorn  (puerto 8000, solo localhost)
   ├── APScheduler        (jobs automáticos)
   └── Watchdog cron      (comprobaciones cada 60 min)
       │
       ▼
 Google Calendar (fuente de verdad)
+
+DNS: peluqueriabot.duckdns.org → IP de la VM (DuckDNS, actualizado cada 5 min)
+SSL: certificado Let's Encrypt, renovación automática cada 90 días
 ```
 
 ---
@@ -125,13 +128,14 @@ En **WhatsApp → Configuración de la API**:
 
 ---
 
-### 1.3 ngrok
+### 1.3 DuckDNS
 
-1. Crea cuenta en [ngrok.com](https://ngrok.com) (plan gratuito)
-2. Dashboard → **Domains → New Domain** → reclama un dominio estático (ej: `mi-peluqueria.ngrok-free.app`)
-3. Copia el **Auth Token** desde el dashboard → `NGROK_TOKEN` en el `.env`
+1. Entra en [duckdns.org](https://www.duckdns.org) con Google o GitHub
+2. Crea un subdominio (ej: `peluqueriabot`) → queda fijo como `peluqueriabot.duckdns.org`
+3. Copia el **token** que aparece en la página principal → `DUCKDNS_TOKEN` en el `.env`
+4. Apunta el dominio a la IP de tu VM ejecutando desde la VM: `curl "https://www.duckdns.org/update?domains=peluqueriabot&token=TU_TOKEN&ip="`
 
-> Usa siempre el dominio estático, nunca una URL temporal. El dominio estático no cambia aunque ngrok se reinicie.
+> DuckDNS es gratuito y permanente. El subdominio no caduca. El bot actualiza la IP automáticamente cada 5 minutos vía cron.
 
 ---
 
@@ -277,8 +281,8 @@ WHATSAPP_APP_SECRET=abc123def456
 GOOGLE_CALENDAR_ID=c_abc123@group.calendar.google.com
 GOOGLE_CREDENTIALS_PATH=./credentials.json
 ADMIN_PHONE=34612345678
-NGROK_DOMAIN=tu-dominio.ngrok-free.app
-NGROK_TOKEN=tu_auth_token_ngrok
+PUBLIC_DOMAIN=peluqueriabot.duckdns.org
+DUCKDNS_TOKEN=tu_token_de_duckdns
 ```
 
 Coloca `credentials.json` en la raíz del proyecto.
@@ -286,19 +290,17 @@ Coloca `credentials.json` en la raíz del proyecto.
 ### 4.3 Arrancar
 
 ```bash
-# Terminal 1 — bot
+# Terminal 1 — bot en modo desarrollo
 source venv/bin/activate
 uvicorn app.main:app --reload --port 8000
-
-# Terminal 2 — túnel HTTPS
-ngrok config add-authtoken TU_AUTH_TOKEN
-ngrok http --domain=tu-dominio.ngrok-free.app 8000
 ```
+
+> En desarrollo local no hay nginx. Para probar webhooks de Meta, puedes usar cualquier túnel temporal (ngrok free tier, cloudflare quick tunnel) y actualizar la URL en Meta Developer Console. En producción el túnel lo gestiona nginx en la VM de GCP.
 
 ### 4.4 Configurar el webhook en Meta (primera vez)
 
 1. Meta for Developers → tu app → WhatsApp → Configuración → Webhook → **Editar**
-2. **URL del webhook**: `https://tu-dominio.ngrok-free.app/webhook`
+2. **URL del webhook**: `https://peluqueriabot.duckdns.org/webhook` (producción) o tu túnel temporal (desarrollo)
 3. **Token de verificación**: el valor de `WHATSAPP_VERIFY_TOKEN` en el `.env`
 4. **Verificar y guardar** → en **Campos de webhook** activa `messages` → Suscribirse
 
@@ -336,7 +338,7 @@ En **Compute Engine → Instancias de VM → Crear instancia**:
 
 En **Opciones avanzadas → Redes**: marca **Permitir tráfico HTTP** y **Permitir tráfico HTTPS**.
 
-> No es necesario reservar IP estática — el bot usa ngrok con dominio estático, que no depende de la IP de la VM.
+> No es necesario reservar IP estática — DuckDNS actualiza automáticamente el dominio si la IP cambia. La IP solo cambia si apagas y reenciendes la VM.
 
 ### 5.2 Preparar la VM
 
@@ -361,10 +363,10 @@ chmod 600 .env credentials.json
 ### 5.3 Instalar y arrancar
 
 ```bash
-make setup      # instala Python 3.11, git, curl, ngrok y crea /var/log/peluqueria
+make setup      # instala Python 3.11, git, curl, nginx, certbot y crea /var/log/peluqueria
 make install    # crea el entorno virtual e instala dependencias Python
-make services   # registra los servicios systemd y el cron del watchdog
-make start      # arranca el bot y el túnel ngrok
+make services   # configura systemd, emite certificado SSL, activa DuckDNS y watchdog
+make start      # arranca el bot y nginx
 ```
 
 Verifica:
@@ -375,9 +377,9 @@ make health   # {"status":"ok","calendar":"ok",...}
 
 ### 5.4 Conectar con Meta
 
-Con el bot corriendo y ngrok activo:
+Con el bot corriendo y nginx activo:
 1. Meta for Developers → tu app → WhatsApp → Configuración → Webhook → **Editar**
-2. **URL**: `https://tu-dominio.ngrok-free.app/webhook`
+2. **URL**: `https://peluqueriabot.duckdns.org/webhook`
 3. **Token de verificación**: valor de `WHATSAPP_VERIFY_TOKEN` en el `.env`
 4. **Verificar y guardar** → activa `messages` → Suscribirse
 
@@ -392,7 +394,7 @@ make start           # arranca o reinicia todos los servicios
 make status          # estado de todos los servicios
 make health          # comprueba conectividad
 make logs            # logs del bot en tiempo real
-make logs-ngrok      # logs del túnel ngrok
+make logs-nginx      # logs de nginx en tiempo real
 make logs-watchdog   # logs del watchdog
 make stop            # para todos los servicios
 make qr              # genera qr_cita.png con el enlace de WhatsApp del negocio
@@ -407,7 +409,7 @@ make start    # reinicia el bot con el nuevo código
 
 **Watchdog automático** — corre cada 60 min vía cron y comprueba:
 - `/health` del bot — caídas y fallos de Calendar
-- Túnel ngrok — accesible desde el exterior
+- Dominio público (`PUBLIC_DOMAIN`) — accesible desde el exterior vía nginx
 - RAM > 90% y disco > 90%
 - Spike de errores en `/metrics`
 
@@ -468,9 +470,9 @@ Peluqueria/
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `{"status":"degraded"}` en /health | Calendar API inaccesible | Verificar `credentials.json` y permisos del Service Account |
-| Bot no responde mensajes | ngrok caído o webhook no suscrito | `make status` → `make start` → verificar URL en Meta |
+| Bot no responde mensajes | nginx caído o webhook no suscrito | `make status` → `make start` → verificar URL en Meta |
 | Webhook no verifica (403) | Token incorrecto o URL mal configurada | Comprobar `WHATSAPP_VERIFY_TOKEN` en `.env` y en Meta |
 | HTTP 401 en logs de WhatsApp | Token de acceso expirado | Generar nuevo token en Meta → actualizar `.env` → `make start` |
 | No llegan recordatorios | Templates no aprobados o `envios.recordatorios: false` | Verificar estado en Meta Business Suite y activar en `config.yaml` |
 | `ModuleNotFoundError: app` en pytest | pytest no encuentra el paquete | Verificar que existe `pytest.ini` con `pythonpath = .` |
-| ngrok se desconecta frecuentemente | Sesión caída | `make start` reinicia ngrok; revisar `make logs-ngrok` |
+| Certificado SSL expirado | Renovación automática fallida | `sudo certbot renew --dry-run`; revisar hook en `/etc/letsencrypt/renewal-hooks/post/` |

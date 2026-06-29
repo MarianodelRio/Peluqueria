@@ -9,7 +9,7 @@ WhatsApp booking bot for a barber shop. Clients book, view, and cancel appointme
 - **Background jobs**: APScheduler 3.x
 - **Persistence**: Google Calendar (no database — Calendar is the single source of truth)
 - **State**: In-memory conversation state, expires after 30 min of inactivity
-- **Deployment**: Linux + systemd + ngrok static domain (production and development)
+- **Deployment**: GCP VM + systemd + nginx reverse proxy + DuckDNS dynamic DNS
 - **Tests**: pytest — all external APIs mocked, no real credentials needed
 
 ---
@@ -35,6 +35,7 @@ app/
       repository.py      # Raw Calendar API calls, range-batched fetch for day picker
     whatsapp.py          # send_text_message(), send_interactive(), send_template()
     scheduler.py         # 3 jobs: sync manual bookings (60 min), reminders (60 min), state cleanup (10 min)
+watchdog.py              # Standalone health monitor: bot /health, RAM, disk, error spike, public domain reachability. Runs via cron every 60 min.
   utils/
     parser.py            # parse_tel/nombre/estado/reminder/cfg, set_field, remove_field
     slots.py             # get_base_slots_for_day(), generate_slots(), filter_available_slots()
@@ -120,9 +121,23 @@ pytest tests/test_conversation.py -v
 # Coverage report
 pytest --cov=app --cov-report=term-missing
 
-# Health check
+# Health check (local)
 curl http://localhost:8000/health
 # → {"status":"ok","calendar":"ok","metrics":{...}}
+
+# Health check (public, through nginx)
+curl https://peluqueriabot.duckdns.org/health
+```
+
+### Production deployment (GCP VM)
+
+```bash
+make setup      # Install nginx + certbot (snap) — first time only
+make install    # Create venv + install Python deps — first time only
+make services   # Configure systemd + SSL cert + DuckDNS cron — first time only
+make start      # Start or restart all services
+make status     # Check service health
+make update     # Deploy code changes (git pull + pip install)
 ```
 
 ---
@@ -137,11 +152,28 @@ WHATSAPP_APP_SECRET=         # Required in production — enables HMAC webhook s
 GOOGLE_CALENDAR_ID=          # Required
 GOOGLE_CREDENTIALS_PATH=     # Path to service account JSON (default: credentials.json)
 ADMIN_PHONE=                 # Required — digits only, no +. Receives watchdog alerts and /estado
-NGROK_DOMAIN=                # Required — static ngrok domain (no https://)
-NGROK_TOKEN=                 # Required — ngrok auth token (used by make services)
+PUBLIC_DOMAIN=               # Required — DuckDNS subdomain without https:// (e.g. peluqueriabot.duckdns.org)
+DUCKDNS_TOKEN=               # Required — DuckDNS account token (used by make services for SSL + IP updater)
 LOG_LEVEL=INFO               # Optional — DEBUG | INFO | WARNING | ERROR
 LOG_FILE=                    # Optional — path for rotating log file
 ```
+
+### Infrastructure overview
+
+```
+Meta WhatsApp ──HTTPS:443──▶ GCP VM (104.196.210.121)
+                                    │
+                              nginx (TLS termination)
+                                    │ proxy_pass
+                              uvicorn :8000 (127.0.0.1 only)
+
+DNS:  peluqueriabot.duckdns.org → 104.196.210.121  (DuckDNS, updated every 5 min via cron)
+SSL:  Let's Encrypt cert via certbot DNS-01 challenge, auto-renewed every 90 days
+```
+
+- uvicorn binds to `127.0.0.1` only — never exposed directly to the internet.
+- nginx passes `X-Real-IP` and `X-Forwarded-For` headers; uvicorn runs with `--proxy-headers` so `request.client.host` returns the real client IP for rate limiting.
+- `watchdog.py` monitors `PUBLIC_DOMAIN` health (check 5) — alert key `proxy_down`.
 
 ---
 

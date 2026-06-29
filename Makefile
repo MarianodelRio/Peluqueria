@@ -2,14 +2,15 @@
 #  Peluquería Citas — Makefile de despliegue y operación
 #
 #  Uso rápido:
-#    make all     →  instalación completa con ngrok (primera vez)
+#    make all     →  instalación completa con nginx + DuckDNS (primera vez)
 #    make update  →  desplegar cambios de código (día a día)
 #
-#  Configura NGROK_DOMAIN antes de ejecutar make all.
+#  Configura PUBLIC_DOMAIN y ADMIN_EMAIL antes de ejecutar make all.
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Variables — edita esta línea según tu caso ─────────────────────────────
-NGROK_DOMAIN := unpermanently-repairable-devon.ngrok-free.dev
+# ── Variables — edita estas líneas según tu caso ──────────────────────────
+PUBLIC_DOMAIN     := peluqueriabot.duckdns.org
+ADMIN_EMAIL       := marianorio24@gmail.com
 WATCHDOG_INTERVAL := 0
 
 # ── Variables automáticas — no tocar ──────────────────────────────────────
@@ -34,7 +35,7 @@ Type=simple
 User=$(USER)
 WorkingDirectory=$(APP_DIR)
 EnvironmentFile=$(APP_DIR)/.env
-ExecStart=$(UVICORN) app.main:app --host 127.0.0.1 --port 8000 --workers 1
+ExecStart=$(UVICORN) app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -46,26 +47,36 @@ WantedBy=multi-user.target
 endef
 export PELUQUERIA_SERVICE
 
-define NGROK_SERVICE
-[Unit]
-Description=ngrok tunnel — Peluquería
-After=network.target peluqueria.service
-Requires=peluqueria.service
+define NGINX_CONF
+server {
+    listen 80;
+    server_name $(PUBLIC_DOMAIN);
+    return 301 https://$$host$$request_uri;
+}
 
-[Service]
-Type=simple
-User=$(USER)
-ExecStart=/usr/local/bin/ngrok http --domain=$(NGROK_DOMAIN) 8000
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=perok
+server {
+    listen 443 ssl;
+    server_name $(PUBLIC_DOMAIN);
 
-[Install]
-WantedBy=multi-user.target
+    ssl_certificate     /etc/letsencrypt/live/$(PUBLIC_DOMAIN)/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$(PUBLIC_DOMAIN)/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers   HIGH:!aNULL:!MD5;
+
+    location / {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host              $$host;
+        proxy_set_header   X-Real-IP         $$remote_addr;
+        proxy_set_header   X-Forwarded-For   $$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $$scheme;
+        proxy_read_timeout 30s;
+        proxy_buffering    off;
+        client_max_body_size 512k;
+    }
+}
 endef
-export NGROK_SERVICE
+export NGINX_CONF
 
 define RESTART_SERVICE
 [Unit]
@@ -105,9 +116,9 @@ help:
 	@echo "  Peluquería Citas — comandos disponibles"
 	@echo ""
 	@echo "  PRIMERA INSTALACIÓN (en orden)"
-	@echo "    make setup      Instala dependencias del sistema"
+	@echo "    make setup      Instala dependencias del sistema (nginx, certbot)"
 	@echo "    make install    Crea entorno virtual e instala Python deps"
-	@echo "    make services   Registra servicios systemd y watchdog cron"
+	@echo "    make services   Configura servicios systemd, SSL y watchdog"
 	@echo "    make start      Arranca todos los servicios"
 	@echo ""
 	@echo "  OPERACIÓN DIARIA"
@@ -117,7 +128,7 @@ help:
 	@echo "    make status     Estado de todos los servicios"
 	@echo "    make health     Comprueba /health del bot"
 	@echo "    make logs       Logs del bot en tiempo real"
-	@echo "    make logs-ngrok     Logs de ngrok en tiempo real"
+	@echo "    make logs-nginx     Logs de nginx en tiempo real"
 	@echo "    make logs-watchdog  Logs del watchdog"
 	@echo ""
 	@echo "  UTILIDADES"
@@ -134,7 +145,7 @@ help:
 .PHONY: all
 all: _check-env setup install services start
 	@echo ""
-	@echo "  ✓ Instalación completa (modo ngrok)"
+	@echo "  ✓ Instalación completa (nginx + DuckDNS)"
 	@echo "  Comprueba el estado con: make status"
 	@echo "  Comprueba el bot con:    make health"
 	@echo ""
@@ -145,6 +156,8 @@ all: _check-env setup install services start
 _check-env:
 	@test -f $(APP_DIR)/.env || { echo "ERROR: falta $(APP_DIR)/.env — cópialo de .env.example y rellénalo"; exit 1; }
 	@test -f $(APP_DIR)/credentials.json || { echo "ERROR: falta $(APP_DIR)/credentials.json — súbelo desde tu máquina local"; exit 1; }
+	@DUCKDNS_TOKEN=$$(grep -E '^DUCKDNS_TOKEN=' $(APP_DIR)/.env | cut -d= -f2); \
+	test -n "$$DUCKDNS_TOKEN" || { echo "ERROR: DUCKDNS_TOKEN vacío en $(APP_DIR)/.env"; exit 1; }
 
 # ── Dependencias del sistema ───────────────────────────────────────────────
 
@@ -152,16 +165,16 @@ _check-env:
 setup:
 	@echo "→ Instalando dependencias del sistema..."
 	sudo apt-get update -qq
-	sudo apt-get install -y python3.11 python3.11-venv git curl
-	@echo "→ Instalando ngrok..."
-	@if ! command -v ngrok >/dev/null 2>&1; then \
-		curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
-			| sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null; \
-		echo "deb https://ngrok-agent.s3.amazonaws.com buster main" \
-			| sudo tee /etc/apt/sources.list.d/ngrok.list; \
-		sudo apt-get update -qq && sudo apt-get install -y ngrok; \
+	sudo apt-get install -y python3.11 python3.11-venv git curl nginx
+	@echo "→ Instalando certbot..."
+	@if ! command -v certbot >/dev/null 2>&1; then \
+		sudo snap install --classic certbot; \
+		sudo ln -sf /snap/bin/certbot /usr/local/bin/certbot; \
+		sudo snap set certbot trust-plugin-with-root=ok; \
+		sudo snap install certbot-dns-duckdns; \
+		sudo snap connect certbot:plugin certbot-dns-duckdns; \
 	else \
-		echo "   ngrok ya instalado, omitiendo"; \
+		echo "   certbot ya instalado, omitiendo"; \
 	fi
 	@echo "→ Creando directorio de logs..."
 	sudo mkdir -p $(LOG_DIR)
@@ -179,33 +192,60 @@ install:
 	$(PIP) install -r $(APP_DIR)/requirements.txt -q
 	@echo "   ✓ install completado"
 
-# ── Servicios systemd ─────────────────────────────────────────────────────
+# ── Servicios systemd ──────────────────────────────────────────────────────
 
 .PHONY: services
-services: _check-env _service-uvicorn _service-ngrok _service-restart _watchdog-cron
-	@echo "→ Configurando token de ngrok..."
-	@NGROK_TOKEN=$$(grep -E '^NGROK_TOKEN=' $(APP_DIR)/.env | cut -d= -f2); \
-	if [ -n "$$NGROK_TOKEN" ]; then \
-		ngrok config add-authtoken $$NGROK_TOKEN; \
-	else \
-		echo "   AVISO: NGROK_TOKEN no está en .env — configúralo manualmente con:"; \
-		echo "   ngrok config add-authtoken TU_TOKEN"; \
-	fi
+services: _check-env _service-uvicorn _service-duckdns _certbot _service-nginx _service-restart _watchdog-cron
 	sudo systemctl daemon-reload
-	sudo systemctl enable peluqueria ngrok peluqueria-restart.timer
-	@echo "   ✓ servicios systemd instalados — ejecuta 'make start' para arrancarlos"
+	sudo systemctl enable peluqueria nginx peluqueria-restart.timer
+	@echo "   ✓ servicios configurados — ejecuta 'make start' para arrancarlos"
 
-# ── Generadores de ficheros systemd ───────────────────────────────────────
+# ── Generadores de ficheros systemd y configuración ───────────────────────
 
 .PHONY: _service-uvicorn
 _service-uvicorn:
 	@echo "→ Creando peluqueria.service..."
 	@printf '%s\n' "$$PELUQUERIA_SERVICE" | sudo tee /etc/systemd/system/peluqueria.service > /dev/null
 
-.PHONY: _service-ngrok
-_service-ngrok:
-	@echo "→ Creando ngrok.service..."
-	@printf '%s\n' "$$NGROK_SERVICE" | sudo tee /etc/systemd/system/ngrok.service > /dev/null
+.PHONY: _service-nginx
+_service-nginx:
+	@echo "→ Configurando nginx..."
+	@printf '%s\n' "$$NGINX_CONF" | sudo tee /etc/nginx/sites-available/peluqueria > /dev/null
+	@sudo ln -sf /etc/nginx/sites-available/peluqueria /etc/nginx/sites-enabled/peluqueria
+	@sudo rm -f /etc/nginx/sites-enabled/default
+	@sudo nginx -t
+	@echo "   ✓ nginx configurado"
+
+.PHONY: _certbot
+_certbot:
+	@echo "→ Emitiendo certificado SSL para $(PUBLIC_DOMAIN)..."
+	@DUCKDNS_TOKEN=$$(grep -E '^DUCKDNS_TOKEN=' $(APP_DIR)/.env | cut -d= -f2); \
+	sudo certbot certonly \
+		--authenticator dns-duckdns \
+		--dns-duckdns-token $$DUCKDNS_TOKEN \
+		--dns-duckdns-propagation-seconds 60 \
+		-d $(PUBLIC_DOMAIN) \
+		--non-interactive \
+		--agree-tos \
+		--email $(ADMIN_EMAIL) \
+		--keep-until-expiring
+	@printf '#!/bin/sh\nsystemctl reload nginx\n' \
+		| sudo tee /etc/letsencrypt/renewal-hooks/post/reload-nginx.sh > /dev/null
+	@sudo chmod +x /etc/letsencrypt/renewal-hooks/post/reload-nginx.sh
+	@echo "   ✓ certificado SSL listo (renovación automática configurada)"
+
+.PHONY: _service-duckdns
+_service-duckdns:
+	@echo "→ Configurando actualizador de IP DuckDNS..."
+	@DUCKDNS_TOKEN=$$(grep -E '^DUCKDNS_TOKEN=' $(APP_DIR)/.env | cut -d= -f2); \
+	DUCKDNS_SUBDOMAIN=$$(echo "$(PUBLIC_DOMAIN)" | cut -d. -f1); \
+	if [ -n "$$DUCKDNS_TOKEN" ]; then \
+		CRON_LINE="*/5 * * * * curl -s \"https://www.duckdns.org/update?domains=$$DUCKDNS_SUBDOMAIN&token=$$DUCKDNS_TOKEN&ip=\" > /dev/null"; \
+		( crontab -l 2>/dev/null | grep -v "duckdns.org"; echo "$$CRON_LINE" ) | crontab -; \
+		echo "   ✓ actualizador DuckDNS activo (cada 5 min)"; \
+	else \
+		echo "   AVISO: DUCKDNS_TOKEN no está en .env"; \
+	fi
 
 .PHONY: _service-restart
 _service-restart:
@@ -238,8 +278,8 @@ status:
 	@echo "── peluqueria ──────────────────────────────────────────"
 	@sudo systemctl status peluqueria --no-pager -l | head -8
 	@echo ""
-	@echo "── ngrok ───────────────────────────────────────────────"
-	@sudo systemctl status ngrok --no-pager -l | head -6
+	@echo "── nginx ───────────────────────────────────────────────"
+	@sudo systemctl status nginx --no-pager -l | head -6
 	@echo ""
 	@echo "── reinicio nocturno ───────────────────────────────────"
 	@sudo systemctl status peluqueria-restart.timer --no-pager -l | head -5
@@ -252,9 +292,9 @@ health:
 logs:
 	sudo journalctl -u peluqueria -f
 
-.PHONY: logs-ngrok
-logs-ngrok:
-	sudo journalctl -u ngrok -f
+.PHONY: logs-nginx
+logs-nginx:
+	sudo journalctl -u nginx -f
 
 .PHONY: logs-watchdog
 logs-watchdog:
@@ -286,10 +326,10 @@ start:
 		sudo systemctl start peluqueria; \
 	fi
 	@sleep 2
-	@if sudo systemctl is-active --quiet ngrok; then \
-		sudo systemctl restart ngrok; \
+	@if sudo systemctl is-active --quiet nginx; then \
+		sudo systemctl reload nginx; \
 	else \
-		sudo systemctl start ngrok; \
+		sudo systemctl start nginx; \
 	fi
 	sudo systemctl start peluqueria-restart.timer
 	@sudo systemctl is-active --quiet peluqueria \
@@ -299,7 +339,7 @@ start:
 .PHONY: stop
 stop:
 	sudo systemctl stop peluqueria
-	sudo systemctl stop ngrok
+	sudo systemctl stop nginx
 	@echo "   ✓ servicios parados"
 
 .PHONY: vacuum-logs
