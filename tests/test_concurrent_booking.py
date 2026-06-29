@@ -30,6 +30,10 @@ import app.services.whatsapp as whatsapp_module
 from app.handlers.webhook import router as webhook_router
 from tests.conftest import make_payload
 
+# Whole module requires real credentials — excluded from `make test`
+# (which runs pytest -m "not integration").
+pytestmark = pytest.mark.integration
+
 # ── Shared capture state ───────────────────────────────────────────────────
 _bot_responses: dict[str, list] = defaultdict(list)
 _wa_lock = threading.Lock()

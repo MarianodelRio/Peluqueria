@@ -266,7 +266,7 @@ logs-watchdog:
 
 .PHONY: test
 test:
-	$(PYTEST) -q
+	$(PYTEST) -q -m "not integration"
 
 .PHONY: lint
 lint:
