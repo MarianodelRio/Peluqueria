@@ -49,6 +49,7 @@ from app.utils.messages import (
 )
 from app.utils import metrics
 from app.utils.parser import parse_nombre
+from app.utils.security import mask_phone
 
 logger = logging.getLogger(__name__)
 TZ = pytz.timezone(TIMEZONE)
@@ -175,7 +176,13 @@ def handle_message(phone: str, text: Optional[str], interactive_id: Optional[str
     Acquires a per-phone lock so that concurrent deliveries for the same
     number (e.g. WhatsApp retries) are serialised and don't corrupt state.
     """
-    with _get_phone_lock(phone):
+    lock = _get_phone_lock(phone)
+    if not lock.acquire(timeout=45):
+        logger.warning("[CONV] Phone lock timeout para %s", mask_phone(phone))
+        metrics.inc("phone_lock_timeout")
+        wa.send_text_message(phone, msg_reintentar())
+        return
+    try:
         wa.begin_delivery_tracking()
         _ctx.committed = False
         try:
@@ -189,6 +196,8 @@ def handle_message(phone: str, text: Optional[str], interactive_id: Optional[str
             logger.warning("[CONV] Respuesta no entregada a %s; fallback", phone)
             metrics.inc("reply_delivery_failed")
             _safe_fallback(phone)
+    finally:
+        lock.release()
 
 
 def _process_message(phone: str, text: Optional[str], interactive_id: Optional[str]):

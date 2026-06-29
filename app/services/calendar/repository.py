@@ -40,7 +40,7 @@ class EventsRepository:
             singleEvents=True,
             orderBy='startTime',
             fields='items(id,summary,description,start,end)',
-        ).execute(num_retries=2)
+        ).execute(num_retries=0)
 
         events = []
         for item in result.get('items', []):
@@ -109,7 +109,7 @@ class EventsRepository:
             if page_token:
                 kwargs['pageToken'] = page_token
 
-            result = svc.events().list(**kwargs).execute(num_retries=2)
+            result = svc.events().list(**kwargs).execute(num_retries=0)
             pages_fetched += 1
 
             for item in result.get('items', []):

@@ -45,7 +45,7 @@ def get_eventos_manuales_sin_confirmar() -> List[dict]:
         singleEvents=True,
         orderBy='startTime',
         fields='items(id,summary,description,start,end)',
-    ).execute(num_retries=2)
+    ).execute(num_retries=0)
 
     manual_events = []
     for item in result.get('items', []):
@@ -103,7 +103,7 @@ def get_citas_para_recordatorio() -> List[dict]:
         singleEvents=True,
         orderBy='startTime',
         fields='items(id,summary,description,start,end)',
-    ).execute(num_retries=2)
+    ).execute(num_retries=0)
 
     reminders = []
     for item in result.get('items', []):
@@ -165,7 +165,7 @@ def get_citas_futuras(telefono: str) -> list:
             singleEvents=True,
             orderBy='startTime',
             fields='items(id,summary,description,start,end)',
-        ).execute(num_retries=2)
+        ).execute(num_retries=0)
 
         citas = []
         for item in result.get('items', []):
@@ -223,7 +223,7 @@ def get_event_by_id(event_id: str, phone: str) -> Optional[dict]:
         event = service.events().get(
             calendarId=GOOGLE_CALENDAR_ID, eventId=event_id,
             fields='id,summary,description,start,end',
-        ).execute(num_retries=2)
+        ).execute(num_retries=0)
     except Exception as e:
         logger.debug(
             f"[CAL] get_event_by_id not found or error event_id={event_id}: {e}"

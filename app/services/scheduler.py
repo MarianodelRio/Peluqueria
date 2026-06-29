@@ -172,11 +172,17 @@ def create_scheduler() -> BackgroundScheduler:
         timezone=TIMEZONE,
     )
 
-    _jobs = [
-        (job_sync_citas_manuales,          SYNC_MANUAL_INTERVAL_MIN),
-        (job_enviar_recordatorios,         RECORDATORIO_INTERVAL_MIN),
-        (job_limpiar_estados_conversacion, LIMPIAR_ESTADOS_INTERVAL_MIN),
-    ]
+    _jobs = []
+    if ENVIAR_CONFIRMACIONES:
+        _jobs.append((job_sync_citas_manuales, SYNC_MANUAL_INTERVAL_MIN))
+    else:
+        logger.info("[SCHEDULER] job_sync_citas_manuales not registered (ENVIAR_CONFIRMACIONES=False)")
+    if ENVIAR_RECORDATORIOS:
+        _jobs.append((job_enviar_recordatorios, RECORDATORIO_INTERVAL_MIN))
+    else:
+        logger.info("[SCHEDULER] job_enviar_recordatorios not registered (ENVIAR_RECORDATORIOS=False)")
+    _jobs.append((job_limpiar_estados_conversacion, LIMPIAR_ESTADOS_INTERVAL_MIN))
+
     for fn, interval in _jobs:
         scheduler.add_job(
             fn,

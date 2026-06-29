@@ -29,8 +29,10 @@ from app.config import (
     WHATSAPP_VERIFY_TOKEN,
 )
 from app.handlers.conversation import handle_message
+from app.services import whatsapp as wa
 from app.utils import metrics
 from app.utils.dedup import MessageDeduplicator
+from app.utils.messages import msg_reintentar
 from app.utils.rate_limiter import RateLimiter
 from app.utils.security import mask_phone
 
@@ -55,6 +57,7 @@ def _handle_with_semaphore(phone: str, text, interactive_id):
             mask_phone(phone),
         )
         metrics.inc('handler_dropped')
+        wa.send_text_message(phone, msg_reintentar())
         return
     try:
         handle_message(phone=phone, text=text, interactive_id=interactive_id)

@@ -349,10 +349,10 @@ GOOGLE_API_TIMEOUT_SEC = 10
 HTTP_TIMEOUT_SEC = 10
 
 # ── Slot availability cache ────────────────────────────────────────────────
-SLOT_CACHE_TTL_SEC = 30
+SLOT_CACHE_TTL_SEC = 180
 
 # ── Per-phone appointments cache ───────────────────────────────────────────
-CITAS_CACHE_TTL_SEC = 60
+CITAS_CACHE_TTL_SEC = 180
 
 # ── Concurrency ────────────────────────────────────────────────────────────
 MAX_CONCURRENT_HANDLERS = 40

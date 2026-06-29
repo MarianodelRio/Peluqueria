@@ -69,7 +69,7 @@ class CalendarClient:
                 maxResults=1,
                 singleEvents=True,
                 fields='items(id)',
-            ).execute(num_retries=2)
+            ).execute(num_retries=0)
             return True
         except Exception as e:
             logger.error(f"[CAL] Health check failed: {e}")
