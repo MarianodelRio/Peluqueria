@@ -271,7 +271,7 @@ def _print_summary(
 # ── Test ───────────────────────────────────────────────────────────────────
 
 @pytest.mark.integration
-@pytest.mark.parametrize("n_users", [1, 3, 5, 10])
+@pytest.mark.parametrize("n_users", [1, 3, 5, 10, 15, 20])
 def test_concurrent_booking(n_users, client, calendar_spy, whatsapp_spy):
     _reset_state()
 
