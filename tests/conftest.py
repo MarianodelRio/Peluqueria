@@ -4,12 +4,42 @@ Shared fixtures and helpers for the test suite.
 All external dependencies (Google Calendar API, WhatsApp API, httpx) are mocked
 so tests run without credentials or network access.
 """
+import itertools
 import pytest
 from datetime import datetime
 from unittest.mock import patch
 import pytz
 
 TZ = pytz.timezone("Europe/Madrid")
+
+# ── Webhook payload builder ──────────────────────────────────────────────────
+
+_msg_id_counter = itertools.count(1)
+
+_BUTTON_PREFIXES = ("menu_", "period_", "back_")
+
+
+def make_payload(phone: str, *, text: str | None = None,
+                 interactive_id: str | None = None) -> dict:
+    """Build a Meta webhook payload for a single message.
+
+    Automatically selects button_reply vs list_reply based on the ID prefix:
+    - menu_*, period_*, back_* → button_reply
+    - everything else → list_reply
+    """
+    msg_id = f"test_msg_{next(_msg_id_counter)}"
+    msg: dict = {"from": phone, "id": msg_id}
+    if text is not None:
+        msg["type"] = "text"
+        msg["text"] = {"body": text}
+    elif interactive_id is not None:
+        if any(interactive_id.startswith(p) for p in _BUTTON_PREFIXES):
+            itype = "button_reply"
+        else:
+            itype = "list_reply"
+        msg["type"] = "interactive"
+        msg["interactive"] = {"type": itype, itype: {"id": interactive_id}}
+    return {"entry": [{"changes": [{"value": {"messages": [msg]}}]}]}
 
 
 # ── Datetime helpers ────────────────────────────────────────────────────────
