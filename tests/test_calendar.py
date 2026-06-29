@@ -1060,7 +1060,7 @@ class TestCitasCacheInfrastructure:
         # Manually expire the cache entry
         with cal_module._citas_cache_lock:
             citas, _ = cal_module._citas_cache["34600000001"]
-            cal_module._citas_cache["34600000001"] = (citas, time.time() - 61)
+            cal_module._citas_cache["34600000001"] = (citas, time.time() - 181)
 
         cal.get_citas_futuras("34600000001")
 
