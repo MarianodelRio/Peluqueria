@@ -67,7 +67,10 @@ def _post(body: dict) -> bool:
                     ra = _retry_after_seconds(e.response)
                     base = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
                     delay = min(ra if ra is not None else base, _RETRY_AFTER_CAP)
-                    logger.warning(f"[WA] HTTP 429, retry {attempt+1}/{_MAX_RETRIES} (delay {delay:.1f}s)")
+                    logger.warning(
+                        f"[WA] HTTP 429, retry {attempt+1}/{_MAX_RETRIES}"
+                        f" (delay {delay:.1f}s)"
+                    )
                     time.sleep(delay)
                     continue
                 logger.error("[WA] HTTP 429 tras reintentos")

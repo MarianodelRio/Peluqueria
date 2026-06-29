@@ -1041,7 +1041,7 @@ class TestHandleMessageResilience:
     def test_exception_in_process_triggers_fallback(self):
         """When _process_message raises, the fallback message is sent,
         state is cleared, and handler_errors is incremented."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
         from app.utils import metrics
         import app.handlers.conversation as conv
 
