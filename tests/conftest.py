@@ -20,7 +20,8 @@ _BUTTON_PREFIXES = ("menu_", "period_", "back_")
 
 
 def make_payload(phone: str, *, text: str | None = None,
-                 interactive_id: str | None = None) -> dict:
+                 interactive_id: str | None = None,
+                 user_id: str = "") -> dict:
     """Build a Meta webhook payload for a single message.
 
     Automatically selects button_reply vs list_reply based on the ID prefix:
@@ -28,7 +29,7 @@ def make_payload(phone: str, *, text: str | None = None,
     - everything else → list_reply
     """
     msg_id = f"test_msg_{next(_msg_id_counter)}"
-    msg: dict = {"from": phone, "id": msg_id}
+    msg: dict = {"from": phone, "id": msg_id, "user_id": user_id}
     if text is not None:
         msg["type"] = "text"
         msg["text"] = {"body": text}
@@ -67,11 +68,12 @@ def make_event(event_id="evt1", title="Cita - Test", description="",
 
 
 def make_cita_description(nombre="Ana García", telefono="34600000001",
-                           estado="confirmada", recordatorio="no", servicio=None):
-    desc = (
-        f"Nombre: {nombre}\n"
-        f"Telefono: {telefono}\n"
-    )
+                           estado="confirmada", recordatorio="no", servicio=None,
+                           wa_id=None):
+    desc = f"Nombre: {nombre}\n"
+    if wa_id is not None:
+        desc += f"WaId: {wa_id}\n"
+    desc += f"Telefono: {telefono}\n"
     if servicio is not None:
         desc += f"Servicio: {servicio}\n"
     desc += (

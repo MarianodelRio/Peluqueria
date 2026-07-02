@@ -55,7 +55,8 @@ tests/
 All appointment events have these fields in the description (parsed by `parser.py`):
 ```
 Nombre: Juan García
-Telefono: +34612345678
+WaId: ES.1A2B3C4D5E6F...    ← always (bot key, for queries and sends)
+Telefono: 34612345678        ← only when phone is visible (for the barber)
 Servicio: corte | corte_barba | mechas
 Estado: pendiente | confirmada
 Recordatorio: no | sí

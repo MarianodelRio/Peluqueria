@@ -17,7 +17,7 @@ from app.config import (
 from app.utils import metrics
 from app.utils.security import mask_phone
 from app.utils.parser import (
-    parse_nombre, parse_tel, parse_estado, parse_reminder,
+    parse_nombre, parse_tel, parse_wa_id, parse_estado, parse_reminder,
     parse_cfg, parse_servicio_from_title,
 )
 
@@ -26,6 +26,12 @@ from .caches import citas_cache
 
 logger = logging.getLogger(__name__)
 TZ = pytz.timezone(TIMEZONE)
+
+
+def _event_matches(desc: str, identifier: str, phone: Optional[str]) -> bool:
+    wa_id = parse_wa_id(desc)
+    tel   = parse_tel(desc)
+    return (wa_id == identifier) or (phone is not None and tel == phone)
 
 
 def get_eventos_manuales_sin_confirmar() -> List[dict]:
@@ -114,7 +120,9 @@ def get_citas_para_recordatorio() -> List[dict]:
             continue
 
         tel = parse_tel(desc)
-        if not tel:
+        wa_id = parse_wa_id(desc)
+        contacto = tel or wa_id
+        if not contacto:
             continue
 
         # Skip if reminder already sent
@@ -136,21 +144,22 @@ def get_citas_para_recordatorio() -> List[dict]:
             'title': title,
             'description': desc,
             'telefono': tel,
+            'contacto': contacto,
             'start': start_dt,
         })
 
     return reminders
 
 
-def get_citas_futuras(telefono: str) -> list:
+def get_citas_futuras(identifier: str, phone: Optional[str] = None) -> list:
     """
-    Return ALL future appointments for a phone number, ordered by date.
+    Return ALL future appointments for an identifier (BSUID or phone), ordered by date.
     Returns [] on Google Calendar API failure (graceful degradation).
-    Results are cached per phone for CITAS_CACHE_TTL_SEC seconds.
+    Results are cached per identifier for CITAS_CACHE_TTL_SEC seconds.
     """
     try:
         # Cache read
-        cached = citas_cache.get(telefono)
+        cached = citas_cache.get(identifier)
         if cached is not None:
             return list(cached)
 
@@ -175,8 +184,7 @@ def get_citas_futuras(telefono: str) -> list:
             if parse_cfg(title):
                 continue
 
-            tel = parse_tel(desc)
-            if not tel or tel != telefono:
+            if not _event_matches(desc, identifier, phone):
                 continue
 
             start_raw = item.get('start', {})
@@ -196,24 +204,25 @@ def get_citas_futuras(telefono: str) -> list:
             })
 
         # Cache write
-        citas_cache.set(telefono, list(citas))
+        citas_cache.set(identifier, list(citas))
 
         return citas
     except Exception as e:
         logger.error(
-            f"[CAL] Error fetching citas for {mask_phone(telefono)}: {e}",
+            f"[CAL] Error fetching citas for {mask_phone(identifier)}: {e}",
             exc_info=True,
         )
         metrics.inc('calendar_errors')
         return []
 
 
-def get_event_by_id(event_id: str, phone: str) -> Optional[dict]:
+def get_event_by_id(event_id: str, identifier: str,
+                    phone: Optional[str] = None) -> Optional[dict]:
     """
     Fetch a single appointment event by ID and verify ownership.
 
-    Security: returns None if the event's Telefono field does not match `phone`,
-    making phone-mismatch indistinguishable from a missing event to the caller.
+    Security: returns None if neither the WaId nor Telefono field matches,
+    making identifier-mismatch indistinguishable from a missing event to the caller.
 
     Returns a dict with keys {id, title, description, start, end} matching the
     entries returned by get_citas_futuras, or None on any error / ownership failure.
@@ -239,7 +248,7 @@ def get_event_by_id(event_id: str, phone: str) -> Optional[dict]:
         return None
 
     desc = event.get('description', '') or ''
-    if parse_tel(desc) != phone:
+    if not _event_matches(desc, identifier, phone):
         return None
 
     start_dt = datetime.fromisoformat(start_raw['dateTime']).astimezone(TZ)

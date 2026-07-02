@@ -12,7 +12,7 @@ import pytz
 from app.config import GOOGLE_CALENDAR_ID, TIMEZONE, SERVICIOS
 from app.utils import metrics
 from app.utils.security import mask_phone
-from app.utils.parser import parse_tel, set_field
+from app.utils.parser import parse_tel, parse_wa_id, set_field
 from app.utils.slots import slot_to_datetime
 
 from .client import client
@@ -36,7 +36,8 @@ def _invalidate_citas_cache(phone: Optional[str]) -> None:
 
 
 def crear_cita(
-    d: date, hora: str, nombre: str, telefono: str, servicio: dict,
+    d: date, hora: str, nombre: str, wa_id: str, servicio: dict, *,
+    telefono: Optional[str] = None,
 ) -> Optional[str]:
     """
     Create appointment event in Google Calendar.
@@ -48,13 +49,11 @@ def crear_cita(
 
     key = next((k for k, v in SERVICIOS.items() if v is servicio), "desconocido")
 
-    description = (
-        f"Nombre: {nombre}\n"
-        f"Telefono: {telefono}\n"
-        f"Servicio: {key}\n"
-        f"Estado: confirmada\n"
-        f"Recordatorio: no"
-    )
+    lines = [f"Nombre: {nombre}", f"WaId: {wa_id}"]
+    if telefono:
+        lines.append(f"Telefono: {telefono}")
+    lines += [f"Servicio: {key}", "Estado: confirmada", "Recordatorio: no"]
+    description = "\n".join(lines)
 
     event = {
         'summary': f"{servicio['nombre']} - {nombre}",
@@ -68,12 +67,12 @@ def crear_cita(
             calendarId=GOOGLE_CALENDAR_ID, body=event
         ).execute(num_retries=0)
         logger.info(
-            f"[CAL] Created appointment (confirmed): {nombre} {mask_phone(telefono)} "
+            f"[CAL] Created appointment (confirmed): {nombre} {mask_phone(wa_id)} "
             f"{d} {hora} event_id={created['id']}"
         )
         _invalidate_slot_cache(d)
         metrics.inc('bookings_created')
-        _invalidate_citas_cache(telefono)
+        _invalidate_citas_cache(wa_id)
         return created['id']
     except Exception as e:
         logger.error(f"[CAL] Error creating appointment: {e}")
@@ -94,7 +93,9 @@ def confirmar_cita(event_id: str) -> bool:
             calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event
         ).execute(num_retries=0)
         logger.info(f"[CAL] Confirmed appointment event_id={event_id}")
-        _invalidate_citas_cache(parse_tel(desc))
+        for _key in (parse_wa_id(desc), parse_tel(desc)):
+            if _key:
+                _invalidate_citas_cache(_key)
         return True
     except Exception as e:
         logger.error(f"[CAL] Error confirming appointment {event_id}: {e}")
@@ -123,7 +124,10 @@ def cancelar_cita(event_id: str) -> bool:
         metrics.inc('bookings_cancelled')
         if event_date:
             _invalidate_slot_cache(event_date)
-        _invalidate_citas_cache(parse_tel(event.get('description', '') or ''))
+        desc = event.get('description', '') or ''
+        for _key in (parse_wa_id(desc), parse_tel(desc)):
+            if _key:
+                _invalidate_citas_cache(_key)
         return True
     except Exception as e:
         logger.error(f"[CAL] Error deleting appointment {event_id}: {e}")
@@ -148,7 +152,9 @@ def marcar_manual_confirmado(event_id: str) -> bool:
             calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event
         ).execute(num_retries=0)
         logger.info(f"[CAL] Marked manual event confirmed: {event_id}")
-        _invalidate_citas_cache(parse_tel(desc))
+        for _key in (parse_wa_id(desc), parse_tel(desc)):
+            if _key:
+                _invalidate_citas_cache(_key)
         return True
     except Exception as e:
         logger.error(f"[CAL] Error marking manual confirmed {event_id}: {e}")

@@ -71,9 +71,9 @@ class TestWebhookVerification:
 # ── POST /webhook (message reception) ──────────────────────────────────────────
 
 def _make_payload(phone, msg_type, body_text=None, interactive_type=None,
-                  interactive_id=None, msg_id="msg_001"):
+                  interactive_id=None, msg_id="msg_001", user_id=""):
     """Helper to build a WhatsApp webhook payload."""
-    msg = {"from": phone, "id": msg_id, "type": msg_type}
+    msg = {"from": phone, "id": msg_id, "type": msg_type, "user_id": user_id}
     if msg_type == "text":
         msg["text"] = {"body": body_text}
     elif msg_type == "interactive":
@@ -95,7 +95,8 @@ class TestWebhookPost:
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
         mock_handle.assert_called_once_with(
-            phone="34600000001", text="Hola", interactive_id=None
+            identifier="34600000001", phone="34600000001",
+            text="Hola", interactive_id=None
         )
 
     def test_button_reply_dispatched(self, mock_handle):
@@ -105,7 +106,8 @@ class TestWebhookPost:
         resp = client.post("/webhook", json=payload)
         assert resp.status_code == 200
         mock_handle.assert_called_once_with(
-            phone="34600000001", text=None, interactive_id="menu_book"
+            identifier="34600000001", phone="34600000001",
+            text=None, interactive_id="menu_book"
         )
 
     def test_list_reply_dispatched(self, mock_handle):
@@ -114,7 +116,8 @@ class TestWebhookPost:
                                  interactive_id="day_2026-03-23")
         client.post("/webhook", json=payload)
         mock_handle.assert_called_once_with(
-            phone="34600000001", text=None, interactive_id="day_2026-03-23"
+            identifier="34600000001", phone="34600000001",
+            text=None, interactive_id="day_2026-03-23"
         )
 
     def test_unknown_message_type_sends_fallback(self, mock_handle):
@@ -122,7 +125,8 @@ class TestWebhookPost:
         resp = client.post("/webhook", json=payload)
         assert resp.status_code == 200
         mock_handle.assert_called_once_with(
-            phone="34600000001", text="__unknown__", interactive_id=None
+            identifier="34600000001", phone="34600000001",
+            text="__unknown__", interactive_id=None
         )
 
     def test_duplicate_message_id_skipped(self, mock_handle):
@@ -182,3 +186,63 @@ class TestWebhookPost:
         resp = client.post("/webhook", json=payload)
         assert resp.status_code == 200
         mock_handle.assert_not_called()
+
+
+class TestWebhookBsuid:
+    """Tests for BSUID (Business-Scoped User ID) identifier handling."""
+
+    BSUID = "ES.1A2B3C4D5E6F"
+    PHONE = "34600000001"
+
+    def test_bsuid_in_user_id_phone_in_from(self, mock_handle):
+        """BSUID in user_id, phone digits in from → identifier=BSUID, phone=phone."""
+        payload = _make_payload(self.PHONE, "text", body_text="Hola",
+                                user_id=self.BSUID, msg_id="bsuid_001")
+        resp = client.post("/webhook", json=payload)
+        assert resp.status_code == 200
+        mock_handle.assert_called_once_with(
+            identifier=self.BSUID, phone=self.PHONE,
+            text="Hola", interactive_id=None
+        )
+
+    def test_bsuid_in_both_user_id_and_from(self, mock_handle):
+        """BSUID in both user_id and from → identifier=BSUID, phone=None."""
+        payload = _make_payload(self.BSUID, "text", body_text="Hola",
+                                user_id=self.BSUID, msg_id="bsuid_002")
+        resp = client.post("/webhook", json=payload)
+        assert resp.status_code == 200
+        mock_handle.assert_called_once_with(
+            identifier=self.BSUID, phone=None,
+            text="Hola", interactive_id=None
+        )
+
+    def test_phone_only_no_user_id_backward_compat(self, mock_handle):
+        """Only from with phone digits, no user_id → identifier=phone, phone=phone."""
+        payload = _make_payload(self.PHONE, "text", body_text="Hola",
+                                msg_id="bsuid_003")
+        resp = client.post("/webhook", json=payload)
+        assert resp.status_code == 200
+        mock_handle.assert_called_once_with(
+            identifier=self.PHONE, phone=self.PHONE,
+            text="Hola", interactive_id=None
+        )
+
+    def test_invalid_user_id_not_dispatched(self, mock_handle):
+        """Invalid user_id (matches neither phone nor BSUID) → not dispatched."""
+        payload = _make_payload(self.PHONE, "text", body_text="Hola",
+                                user_id="!invalid!", msg_id="bsuid_004")
+        resp = client.post("/webhook", json=payload)
+        assert resp.status_code == 200
+        mock_handle.assert_not_called()
+
+    def test_valid_bsuid_in_user_id_no_from(self, mock_handle):
+        """No from field, valid user_id → identifier=BSUID, phone=None."""
+        msg = {"id": "bsuid_005", "type": "text", "text": {"body": "Hola"},
+               "user_id": self.BSUID}
+        payload = {"entry": [{"changes": [{"value": {"messages": [msg]}}]}]}
+        resp = client.post("/webhook", json=payload)
+        assert resp.status_code == 200
+        mock_handle.assert_called_once_with(
+            identifier=self.BSUID, phone=None,
+            text="Hola", interactive_id=None
+        )

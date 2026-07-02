@@ -44,7 +44,8 @@ def mock_cal():
 
 def send(phone=PHONE, text=None, interactive_id=None):
     from app.handlers.conversation import handle_message
-    handle_message(phone=phone, text=text, interactive_id=interactive_id)
+    handle_message(identifier=phone, phone=phone, text=text,
+                   interactive_id=interactive_id)
 
 
 # ── Bug 1: confirmar_cita return value was ignored ─────────────────────────────
@@ -198,14 +199,14 @@ class TestPhoneNormalisationInCalendar:
         import app.services.calendar as cal
         svc = self._make_service("Telefono: +34600000001\nEstado: confirmada")
         with patch.object(cal.client, "get_service", return_value=svc):
-            citas = cal.get_citas_futuras("34600000001")
+            citas = cal.get_citas_futuras("34600000001", phone="34600000001")
         assert len(citas) == 1
 
     def test_get_citas_futuras_finds_no_country_code(self):
         import app.services.calendar as cal
         svc = self._make_service("Telefono: 600000001\nEstado: confirmada")
         with patch.object(cal.client, "get_service", return_value=svc):
-            citas = cal.get_citas_futuras("34600000001")
+            citas = cal.get_citas_futuras("34600000001", phone="34600000001")
         assert len(citas) == 1
 
 

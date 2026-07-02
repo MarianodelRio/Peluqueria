@@ -134,7 +134,7 @@ def job_enviar_recordatorios():
             ]
 
             sent = wa_service.send_template(
-                cita['telefono'],
+                cita['contacto'],
                 WHATSAPP_REMINDER_TEMPLATE,
                 WHATSAPP_TEMPLATE_LANG,
                 components,
@@ -143,7 +143,7 @@ def job_enviar_recordatorios():
                 cal_service.marcar_recordatorio_enviado(cita['id'])
                 logger.info(
                     f"[JOB] Reminder sent: {cita['id']} "
-                    f"tel={mask_phone(cita['telefono'])}"
+                    f"tel={mask_phone(cita['contacto'])}"
                 )
             else:
                 logger.warning(f"[JOB] Failed to send reminder: {cita['id']}")

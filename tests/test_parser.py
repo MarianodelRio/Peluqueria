@@ -8,6 +8,7 @@ from app.utils.parser import (
     _strip_html,
     parse_nombre,
     parse_tel,
+    parse_wa_id,
     parse_estado,
     parse_reminder,
     parse_cfg,
@@ -156,6 +157,33 @@ class TestParseTel:
     def test_html_in_description(self):
         # Google Calendar may inject HTML
         assert parse_tel("Telefono: 34600000001<br>Estado: confirmada") == "34600000001"
+
+
+# ── parse_wa_id ──────────────────────────────────────────────────────────────
+
+class TestParseWaId:
+    def test_basic_extraction(self):
+        assert parse_wa_id("WaId: ES.1A2B3C4D5E6F") == "ES.1A2B3C4D5E6F"
+
+    def test_case_insensitive_key(self):
+        assert parse_wa_id("waid: ES.1A2B3C4D5E6F") == "ES.1A2B3C4D5E6F"
+
+    def test_multiline_description(self):
+        desc = "Nombre: Juan\nWaId: ES.ABC123\nEstado: confirmada"
+        assert parse_wa_id(desc) == "ES.ABC123"
+
+    def test_missing_field_returns_none(self):
+        assert parse_wa_id("Nombre: Juan\nEstado: confirmada") is None
+
+    def test_empty_string_returns_none(self):
+        assert parse_wa_id("") is None
+
+    def test_none_input_returns_none(self):
+        assert parse_wa_id(None) is None
+
+    def test_html_tags_in_description(self):
+        desc = "WaId: ES.1A2B3C<br>Estado: confirmada"
+        assert parse_wa_id(desc) == "ES.1A2B3C"
 
 
 # ── parse_estado ─────────────────────────────────────────────────────────────

@@ -62,6 +62,15 @@ def parse_nombre(text: str) -> Optional[str]:
     return None
 
 
+def parse_wa_id(text: str) -> Optional[str]:
+    """Extract WhatsApp Business-Scoped User ID from 'WaId:' field."""
+    if not text:
+        return None
+    text = _strip_html(text)
+    match = re.search(r'waid\s*:\s*([A-Z]{2}\.[A-Za-z0-9]+)', text, re.IGNORECASE)
+    return match.group(1) if match else None
+
+
 def parse_tel(text: str) -> Optional[str]:
     """
     Extract phone number from 'Telefono:' field.

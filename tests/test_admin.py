@@ -135,7 +135,8 @@ class TestStatusCommand:
         with patch(
             "app.handlers.conversation.build_status_report", return_value="informe"
         ) as mock_report:
-            conv.handle_message(ADMIN, "/estado", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/estado",
+                                interactive_id=None)
 
         mock_report.assert_not_called()
         mock_wa["interactive"].assert_called()
@@ -148,7 +149,8 @@ class TestStatusCommand:
             "app.handlers.conversation.build_status_report",
             return_value="informe de prueba",
         ):
-            conv.handle_message(ADMIN, "/status", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/status",
+                                interactive_id=None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "informe de prueba")
 
@@ -160,7 +162,8 @@ class TestStatusCommand:
             "app.handlers.conversation.build_status_report",
             return_value="informe mayus",
         ):
-            conv.handle_message(ADMIN, "/STATUS", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/STATUS",
+                                interactive_id=None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "informe mayus")
 
@@ -172,7 +175,8 @@ class TestStatusCommand:
             "app.handlers.conversation.build_status_report",
             return_value="informe ws",
         ):
-            conv.handle_message(ADMIN, "  /status  ", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="  /status  ",
+                                interactive_id=None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "informe ws")
 
@@ -183,7 +187,8 @@ class TestStatusCommand:
         with patch(
             "app.handlers.conversation.build_status_report", return_value="informe"
         ) as mock_report:
-            conv.handle_message(OTHER, "/status", None)
+            conv.handle_message(identifier=OTHER, phone=OTHER, text="/status",
+                                interactive_id=None)
 
         mock_report.assert_not_called()
         mock_wa["interactive"].assert_called()
@@ -198,7 +203,8 @@ class TestStatusCommand:
         with patch(
             "app.handlers.conversation.build_status_report", return_value="informe"
         ) as mock_report:
-            conv.handle_message(ADMIN, "/status", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/status",
+                                interactive_id=None)
 
         mock_report.assert_not_called()
 
@@ -210,7 +216,8 @@ class TestStatusCommand:
         with patch(
             "app.handlers.conversation.build_status_report", return_value="informe"
         ) as mock_report:
-            conv.handle_message(ADMIN, None, "back_to_menu")
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text=None,
+                                interactive_id="back_to_menu")
 
         mock_report.assert_not_called()
 
@@ -224,7 +231,8 @@ class TestStatusCommand:
         with patch(
             "app.handlers.conversation.build_status_report", return_value="informe"
         ):
-            conv.handle_message(ADMIN, "/status", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/status",
+                                interactive_id=None)
 
         state = conv._states.get(ADMIN)
         assert state is not None
@@ -245,7 +253,8 @@ class TestHelpCommand:
             "app.handlers.conversation.build_help_message",
             return_value="texto de ayuda",
         ):
-            conv.handle_message(ADMIN, "/help", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/help",
+                                interactive_id=None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "texto de ayuda")
 
@@ -256,7 +265,8 @@ class TestHelpCommand:
         with patch(
             "app.handlers.conversation.build_help_message", return_value="ayuda"
         ) as mock_help:
-            conv.handle_message(OTHER, "/help", None)
+            conv.handle_message(identifier=OTHER, phone=OTHER, text="/help",
+                                interactive_id=None)
 
         mock_help.assert_not_called()
         mock_wa["interactive"].assert_called()
@@ -276,7 +286,8 @@ class TestLogsCommand:
             "app.handlers.conversation.read_log_tail",
             return_value="linea1\nlinea2\n",
         ):
-            conv.handle_message(ADMIN, "/logs", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/logs",
+                                interactive_id=None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "linea1\nlinea2\n")
 
@@ -288,7 +299,8 @@ class TestLogsCommand:
             "app.handlers.conversation.read_log_tail",
             return_value="[ADMIN] LOG_FILE no está configurado.",
         ):
-            conv.handle_message(ADMIN, "/logs", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/logs",
+                                interactive_id=None)
 
         mock_wa["text"].assert_called_once()
         call_args = mock_wa["text"].call_args
@@ -308,7 +320,8 @@ class TestRestartCommand:
         with patch(
             "app.handlers.conversation.schedule_restart"
         ) as mock_restart:
-            conv.handle_message(ADMIN, "/restart", None)
+            conv.handle_message(identifier=ADMIN, phone=ADMIN, text="/restart",
+                                interactive_id=None)
 
         mock_wa["text"].assert_called_once_with(ADMIN, "Reiniciando...")
         mock_restart.assert_called_once()
@@ -322,6 +335,48 @@ class TestRestartCommand:
         with patch(
             "app.handlers.conversation.schedule_restart"
         ) as mock_restart:
-            conv.handle_message(OTHER, "/restart", None)
+            conv.handle_message(identifier=OTHER, phone=OTHER, text="/restart",
+                                interactive_id=None)
 
         mock_restart.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Tests for admin intercept when phone=None but state.phone is set
+# ---------------------------------------------------------------------------
+
+class TestAdminHiddenPhone:
+
+    def test_admin_command_works_when_phone_is_none_but_state_has_phone(
+        self, mock_wa
+    ):
+        """Admin intercept fires when phone=None on current message but
+        state.phone is the admin phone."""
+        import app.handlers.conversation as conv
+
+        conv._states[ADMIN] = conv.ConversationState(step=conv.MENU, phone=ADMIN)
+
+        with patch(
+            "app.handlers.conversation.build_status_report",
+            return_value="informe oculto",
+        ):
+            conv.handle_message(identifier=ADMIN, phone=None, text="/status",
+                                interactive_id=None)
+
+        mock_wa["text"].assert_called_once_with(ADMIN, "informe oculto")
+
+    def test_admin_command_does_not_fire_when_not_admin(self, mock_wa, mock_cal):
+        """Admin intercept does NOT fire when both phone=None and
+        state.phone is not the admin phone."""
+        import app.handlers.conversation as conv
+
+        conv._states[OTHER] = conv.ConversationState(step=conv.MENU, phone=OTHER)
+
+        with patch(
+            "app.handlers.conversation.build_status_report", return_value="informe"
+        ) as mock_report:
+            conv.handle_message(identifier=OTHER, phone=None, text="/status",
+                                interactive_id=None)
+
+        mock_report.assert_not_called()
+        mock_wa["interactive"].assert_called()

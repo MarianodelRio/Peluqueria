@@ -52,7 +52,8 @@ def mock_cal():
 def send(phone=PHONE, text=None, interactive_id=None):
     """Shorthand to call handle_message."""
     from app.handlers.conversation import handle_message
-    handle_message(phone=phone, text=text, interactive_id=interactive_id)
+    handle_message(identifier=phone, phone=phone, text=text,
+                   interactive_id=interactive_id)
 
 
 # ── Initial state / MENU ───────────────────────────────────────────────────────
@@ -499,7 +500,7 @@ class TestReminderResponses:
             "id": "evt1", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))
         }
         send(interactive_id="reminder_confirm_evt1")
-        mock_cal.get_event_by_id.assert_called_once_with("evt1", PHONE)
+        mock_cal.get_event_by_id.assert_called_once_with("evt1", PHONE, phone=PHONE)
         mock_cal.get_citas_futuras.assert_not_called()
 
     def test_reminder_cancel_uses_get_event_by_id_not_full_list(
@@ -510,7 +511,7 @@ class TestReminderResponses:
         }
         mock_cal.cancelar_cita.return_value = True
         send(interactive_id="reminder_cancel_evt1")
-        mock_cal.get_event_by_id.assert_called_once_with("evt1", PHONE)
+        mock_cal.get_event_by_id.assert_called_once_with("evt1", PHONE, phone=PHONE)
         mock_cal.get_citas_futuras.assert_not_called()
 
     def test_reminder_confirm_for_other_phone_returns_not_found(
@@ -1055,7 +1056,8 @@ class TestHandleMessageResilience:
             mock_wa_obj.send_text_message.return_value = True
 
             conv._states.clear()
-            conv.handle_message(PHONE, text="hola", interactive_id=None)
+            conv.handle_message(identifier=PHONE, phone=PHONE, text="hola",
+                                interactive_id=None)
 
         assert metrics._counters.get("handler_errors", 0) > before
         assert conv._states.get(PHONE) is None
@@ -1078,7 +1080,8 @@ class TestHandleMessageResilience:
             mock_wa_obj.send_text_message.return_value = True
 
             conv._states.clear()
-            conv.handle_message(PHONE, text="hola", interactive_id=None)
+            conv.handle_message(identifier=PHONE, phone=PHONE, text="hola",
+                                interactive_id=None)
 
         assert metrics._counters.get("reply_delivery_failed", 0) > before
         mock_wa_obj.send_text_message.assert_called()
@@ -1089,7 +1092,7 @@ class TestHandleMessageResilience:
         from unittest.mock import patch
         import app.handlers.conversation as conv
 
-        def commit_then_raise(phone, text, interactive_id):
+        def commit_then_raise(identifier, phone, text, interactive_id):
             conv._ctx.committed = True
             raise RuntimeError("network error after write")
 
@@ -1101,7 +1104,8 @@ class TestHandleMessageResilience:
             mock_wa_obj.send_text_message.return_value = True
 
             conv._states.clear()
-            conv.handle_message(PHONE, text="hola", interactive_id=None)
+            conv.handle_message(identifier=PHONE, phone=PHONE, text="hola",
+                                interactive_id=None)
 
         calls = [str(c) for c in mock_wa_obj.send_text_message.call_args_list]
         assert any("registrado correctamente" in c for c in calls)
@@ -1119,7 +1123,8 @@ class TestHandleMessageResilience:
             mock_wa_obj.send_text_message.return_value = True
 
             conv._states.clear()
-            conv.handle_message(PHONE, text="hola", interactive_id=None)
+            conv.handle_message(identifier=PHONE, phone=PHONE, text="hola",
+                                interactive_id=None)
 
         for call in mock_wa_obj.send_text_message.call_args_list:
             text_arg = str(call)

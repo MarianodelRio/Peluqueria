@@ -224,7 +224,8 @@ def slot_sigue_libre(
 # ── Atomic booking ────────────────────────────────────────────────────────────
 
 def reservar_cita(
-    d: date, hora: str, nombre: str, telefono: str, servicio: dict,
+    d: date, hora: str, nombre: str, wa_id: str, servicio: dict, *,
+    telefono=None,
 ) -> tuple:
     """
     Atomic booking: acquire per-slot lock → re-validate → create.
@@ -244,15 +245,16 @@ def reservar_cita(
             presencia_cliente_min=presencia,
         ):
             return None, 'slot_taken'
-        event_id = crear_cita(d, hora, nombre, telefono, servicio=servicio)
+        event_id = crear_cita(d, hora, nombre, wa_id, servicio=servicio,
+                              telefono=telefono)
         if not event_id:
             return None, 'error'
         return event_id, None
 
 
 def mover_cita(
-    source_event_id: str, d: date, hora: str, nombre: str, telefono: str,
-    servicio: dict,
+    source_event_id: str, d: date, hora: str, nombre: str, wa_id: str,
+    servicio: dict, *, telefono=None,
 ) -> tuple:
     """
     Atomic move: acquire per-slot lock → re-validate → create new → delete old.
@@ -271,7 +273,8 @@ def mover_cita(
             presencia_cliente_min=presencia,
         ):
             return None, 'slot_taken'
-        new_event_id = crear_cita(d, hora, nombre, telefono, servicio=servicio)
+        new_event_id = crear_cita(d, hora, nombre, wa_id, servicio=servicio,
+                                  telefono=telefono)
         if not new_event_id:
             return None, 'error'
 

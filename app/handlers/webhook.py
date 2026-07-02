@@ -49,18 +49,19 @@ phone_rate_limiter = RateLimiter(limit=20, window_seconds=60)
 _deduplicator      = MessageDeduplicator(ttl_minutes=120)
 
 
-def _handle_with_semaphore(phone: str, text, interactive_id):
+def _handle_with_semaphore(identifier: str, phone, text, interactive_id):
     """Acquire semaphore before processing; release when done."""
     if not _handler_semaphore.acquire(blocking=False):
         logger.warning(
             "[WEBHOOK] Handler capacity exceeded, dropping message from %s",
-            mask_phone(phone),
+            mask_phone(identifier),
         )
         metrics.inc('handler_dropped')
-        wa.send_text_message(phone, msg_reintentar())
+        wa.send_text_message(identifier, msg_reintentar())
         return
     try:
-        handle_message(phone=phone, text=text, interactive_id=interactive_id)
+        handle_message(identifier=identifier, phone=phone, text=text,
+                       interactive_id=interactive_id)
     finally:
         _handler_semaphore.release()
 
@@ -72,11 +73,16 @@ _MAX_INTERACTIVE_ID_LEN = 256      # WhatsApp interactive payload ID limit
 
 # ── Input helpers ──────────────────────────────────────────────────────────
 _PHONE_RE = re.compile(r'^\d{7,15}$')
+_BSUID_RE = re.compile(r'^[A-Z]{2}\.[A-Za-z0-9]{1,128}$')
 
 
-def _validate_phone(phone: str) -> bool:
-    """Validate phone: digits only, E.164 length (7–15 digits)."""
-    return bool(_PHONE_RE.match(phone))
+def _is_phone(s: str) -> bool:
+    return bool(_PHONE_RE.match(s))
+
+
+def _validate_identifier(identifier: str) -> bool:
+    """Accept phone (E.164 digits) or BSUID (XX.alphanum) formats."""
+    return bool(_PHONE_RE.match(identifier)) or bool(_BSUID_RE.match(identifier))
 
 
 # ── HMAC signature verification ────────────────────────────────────────────
@@ -137,18 +143,20 @@ def _iter_messages(body: dict):
     yield from value.get("messages", [])
 
 
-def _extract_text(msg: dict, phone: str) -> str | None:
+def _extract_text(msg: dict, identifier: str) -> str | None:
     text = msg.get("text", {}).get("body", "").strip()
     if not text:
         return None
     if len(text) > _MAX_TEXT_LEN:
-        logger.warning(f"[WEBHOOK] Text too long from {mask_phone(phone)}, truncating")
+        logger.warning(
+            f"[WEBHOOK] Text too long from {mask_phone(identifier)}, truncating"
+        )
         text = text[:_MAX_TEXT_LEN]
-    logger.info(f"[WEBHOOK] text from {mask_phone(phone)}: {text[:80]}")
+    logger.info(f"[WEBHOOK] text from {mask_phone(identifier)}: {text[:80]}")
     return text
 
 
-def _extract_interactive_id(msg: dict, phone: str) -> str | None:
+def _extract_interactive_id(msg: dict, identifier: str) -> str | None:
     interactive = msg.get("interactive", {})
     subtype = interactive.get("type", "")
     if subtype == "button_reply":
@@ -162,49 +170,55 @@ def _extract_interactive_id(msg: dict, phone: str) -> str | None:
     if len(id_) > _MAX_INTERACTIVE_ID_LEN:
         logger.warning(
             "[WEBHOOK] interactive_id too long from %s, skipping",
-            mask_phone(phone),
+            mask_phone(identifier),
         )
         return None
-    logger.info(f"[WEBHOOK] interactive from {mask_phone(phone)}: {id_}")
+    logger.info(f"[WEBHOOK] interactive from {mask_phone(identifier)}: {id_}")
     return id_
 
 
 def _validate_and_extract(msg: dict, ip: str) -> dict | None:
-    phone = msg.get("from", "")
-    if not phone:
+    from_raw = msg.get("from", "")
+    user_id = msg.get("user_id", "")
+    identifier = user_id if user_id else from_raw
+    if not identifier:
         return None
-    if not _validate_phone(phone):
-        logger.warning(f"[WEBHOOK] Invalid phone format: {mask_phone(phone)}")
+    if not _validate_identifier(identifier):
+        logger.warning(f"[WEBHOOK] Invalid identifier format: {mask_phone(identifier)}")
         return None
-    if not phone_rate_limiter.check(phone):
-        logger.warning(f"[WEBHOOK] Phone rate limit exceeded for {mask_phone(phone)}")
+    phone = from_raw if _is_phone(from_raw) else None
+    if not phone_rate_limiter.check(identifier):
+        logger.warning(f"[WEBHOOK] Rate limit exceeded for {mask_phone(identifier)}")
         return None
     metrics.inc('messages_received')
     message_id = msg.get("id", "")
     if message_id and _deduplicator.seen(message_id):
         logger.info(
             "[WEBHOOK] Duplicate msg_id=%s from %s, skipping",
-            message_id, mask_phone(phone),
+            message_id, mask_phone(identifier),
         )
         return None
     msg_type = msg.get("type", "")
     if msg_type == "text":
-        text = _extract_text(msg, phone)
+        text = _extract_text(msg, identifier)
         if text is None:
             return None
-        return {"phone": phone, "text": text, "interactive_id": None}
+        return {"identifier": identifier, "phone": phone, "text": text,
+                "interactive_id": None}
     elif msg_type == "interactive":
-        iid = _extract_interactive_id(msg, phone)
+        iid = _extract_interactive_id(msg, identifier)
         if iid is None:
             return None
-        return {"phone": phone, "text": None, "interactive_id": iid}
+        return {"identifier": identifier, "phone": phone, "text": None,
+                "interactive_id": iid}
     else:
         # audio, image, sticker, etc. → trigger fallback menu
         logger.info(
             "[WEBHOOK] unsupported type '%s' from %s → fallback",
-            msg_type, mask_phone(phone),
+            msg_type, mask_phone(identifier),
         )
-        return {"phone": phone, "text": "__unknown__", "interactive_id": None}
+        return {"identifier": identifier, "phone": phone, "text": "__unknown__",
+                "interactive_id": None}
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────

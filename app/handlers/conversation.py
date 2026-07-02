@@ -69,6 +69,7 @@ MOVE_SELECT_CITA = "MOVE_SELECT_CITA"
 @dataclass
 class ConversationState:
     step: str = MENU
+    phone: Optional[str] = None
     available_days: list = field(default_factory=list)
     selected_date: Optional[date] = None
     all_day_slots: list = field(default_factory=list)   # all slots for selected day
@@ -106,12 +107,12 @@ def _get_phone_lock(phone: str) -> threading.Lock:
         return _phone_locks[phone]
 
 
-def _safe_fallback(phone: str) -> None:
-    _clear(phone)
+def _safe_fallback(identifier: str) -> None:
+    _clear(identifier)
     if getattr(_ctx, "committed", False):
-        wa.send_text_message(phone, msg_accion_ok_sin_confirmar())
+        wa.send_text_message(identifier, msg_accion_ok_sin_confirmar())
     else:
-        wa.send_text_message(phone, msg_reintentar())
+        wa.send_text_message(identifier, msg_reintentar())
 
 
 # ── State store helpers ────────────────────────────────────────────────────
@@ -167,69 +168,74 @@ def clean_expired_states():
 
 # ── Entry point ────────────────────────────────────────────────────────────
 
-def handle_message(phone: str, text: Optional[str], interactive_id: Optional[str]):
+def handle_message(identifier: str, phone: Optional[str], text: Optional[str],
+                   interactive_id: Optional[str]):
     """
     Main entry point called by webhook handler.
     text: set for text messages or unknown types (__unknown__)
     interactive_id: set for button_reply / list_reply
 
-    Acquires a per-phone lock so that concurrent deliveries for the same
-    number (e.g. WhatsApp retries) are serialised and don't corrupt state.
+    Acquires a per-identifier lock so that concurrent deliveries for the same
+    user (e.g. WhatsApp retries) are serialised and don't corrupt state.
     """
-    lock = _get_phone_lock(phone)
+    lock = _get_phone_lock(identifier)
     if not lock.acquire(timeout=45):
-        logger.warning("[CONV] Phone lock timeout para %s", mask_phone(phone))
+        logger.warning("[CONV] Phone lock timeout para %s", mask_phone(identifier))
         metrics.inc("phone_lock_timeout")
-        wa.send_text_message(phone, msg_reintentar())
+        wa.send_text_message(identifier, msg_reintentar())
         return
     try:
         wa.begin_delivery_tracking()
         _ctx.committed = False
         try:
-            _process_message(phone, text, interactive_id)
+            _process_message(identifier, phone, text, interactive_id)
         except Exception:
-            logger.exception("[CONV] Error procesando mensaje de %s", phone)
+            logger.exception("[CONV] Error procesando mensaje de %s", identifier)
             metrics.inc("handler_errors")
-            _safe_fallback(phone)
+            _safe_fallback(identifier)
             return
         if not wa.reply_was_delivered():
-            logger.warning("[CONV] Respuesta no entregada a %s; fallback", phone)
+            logger.warning("[CONV] Respuesta no entregada a %s; fallback", identifier)
             metrics.inc("reply_delivery_failed")
-            _safe_fallback(phone)
+            _safe_fallback(identifier)
     finally:
         lock.release()
 
 
-def _process_message(phone: str, text: Optional[str], interactive_id: Optional[str]):
-    """Inner handler — called inside the per-phone lock."""
-    state = _get(phone)
+def _process_message(identifier: str, phone: Optional[str], text: Optional[str],
+                     interactive_id: Optional[str]):
+    """Inner handler — called inside the per-identifier lock."""
+    state = _get(identifier)
     state.touch()
+    if phone is not None:
+        state.phone = phone
 
     # Admin command intercept — runs before any other routing
-    if (text is not None and ADMIN_PHONE and phone == ADMIN_PHONE
+    effective_phone = phone or state.phone
+    if (text is not None and ADMIN_PHONE and effective_phone == ADMIN_PHONE
             and text.strip().lower() in ADMIN_COMANDOS):
-        _handle_admin_command(phone, text.strip().lower())
+        _handle_admin_command(identifier, text.strip().lower())
         return
 
     # Global: back_to_menu from any state
     if interactive_id == "back_to_menu":
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     # Reminder template responses handled regardless of current state
     if interactive_id and interactive_id.startswith("reminder_"):
-        _handle_reminder_response(phone, interactive_id)
+        _handle_reminder_response(identifier, phone, interactive_id)
         return
 
     # Text input outside MENU → menu, EXCEPT BOOK_ENTER_NAME which expects text
     if text is not None and state.step not in (MENU, BOOK_ENTER_NAME):
-        logger.info(f"[CONV] Text input in state {state.step} for {phone} → menu")
-        _to_menu(phone)
+        logger.info(f"[CONV] Text input in state {state.step} for {identifier} → menu")
+        _to_menu(identifier)
         return
 
     # BOOK_ENTER_NAME expects only text — any button press → menu
     if interactive_id is not None and state.step == BOOK_ENTER_NAME:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     # Route by state
@@ -246,37 +252,37 @@ def _process_message(phone: str, text: Optional[str], interactive_id: Optional[s
     }
     handler = dispatch.get(state.step)
     if handler:
-        handler(phone, state, interactive_id or text or "")
+        handler(identifier, state, interactive_id or text or "")
     else:
-        _to_menu(phone)
+        _to_menu(identifier)
 
 
 # ── Admin command dispatcher ───────────────────────────────────────────────
 
-def _handle_admin_command(phone: str, cmd: str) -> None:
+def _handle_admin_command(identifier: str, cmd: str) -> None:
     """Dispatch an admin command to the appropriate handler."""
     if cmd == "/status":
-        wa.send_text_message(phone, build_status_report())
+        wa.send_text_message(identifier, build_status_report())
     elif cmd == "/help":
-        wa.send_text_message(phone, build_help_message())
+        wa.send_text_message(identifier, build_help_message())
     elif cmd == "/logs":
-        wa.send_text_message(phone, read_log_tail())
+        wa.send_text_message(identifier, read_log_tail())
     elif cmd == "/restart":
-        wa.send_text_message(phone, "Reiniciando...")
+        wa.send_text_message(identifier, "Reiniciando...")
         schedule_restart()
     else:
-        _to_menu(phone)
+        _to_menu(identifier)
 
 
 # ── Navigation helpers ─────────────────────────────────────────────────────
 
-def _to_menu(phone: str):
+def _to_menu(identifier: str):
     """Reset state and show main menu. Used for fallback and normal navigation."""
-    _clear(phone)
-    wa.send_interactive(phone, build_main_menu())
+    _clear(identifier)
+    wa.send_interactive(identifier, build_main_menu())
 
 
-def _go_to_hour_select(phone: str, state: ConversationState, d: date, slots: list):
+def _go_to_hour_select(identifier: str, state: ConversationState, d: date, slots: list):
     """
     Navigate to hour selection from any booking step.
     Splits slots into morning/afternoon and shows period picker when both
@@ -288,7 +294,7 @@ def _go_to_hour_select(phone: str, state: ConversationState, d: date, slots: lis
     if morning and afternoon:
         base_morning, base_afternoon = _base_period_ranges(d)
         state.step = BOOK_SELECT_PERIOD
-        wa.send_interactive(phone, build_period_select(
+        wa.send_interactive(identifier, build_period_select(
             d,
             base_morning or f"{morning[0]}-{morning[-1]}",
             base_afternoon or f"{afternoon[0]}-{afternoon[-1]}",
@@ -296,70 +302,70 @@ def _go_to_hour_select(phone: str, state: ConversationState, d: date, slots: lis
     elif morning:
         state.available_slots = morning
         state.step = BOOK_SELECT_HOUR
-        wa.send_interactive(phone, build_hours_list(d, morning))
+        wa.send_interactive(identifier, build_hours_list(d, morning))
     else:
         state.available_slots = afternoon
         state.step = BOOK_SELECT_HOUR
-        wa.send_interactive(phone, build_hours_list(d, afternoon))
+        wa.send_interactive(identifier, build_hours_list(d, afternoon))
 
 
 # ── MENU ───────────────────────────────────────────────────────────────────
 
-def _handle_menu(phone: str, state: ConversationState, value: str):
+def _handle_menu(identifier: str, state: ConversationState, value: str):
     if value == "menu_book":
         state.step = BOOK_SELECT_SERVICE
-        wa.send_interactive(phone, build_service_select())
+        wa.send_interactive(identifier, build_service_select())
         return
 
     elif value == "menu_book_event":
         # No-op when event is not active (guard against stale/replayed messages)
         if not EVENTO_ACTIVO:
-            wa.send_interactive(phone, build_main_menu())
+            wa.send_interactive(identifier, build_main_menu())
             return
         state.mode = 'evento'
         state.step = BOOK_SELECT_SERVICE
-        wa.send_interactive(phone, build_service_select())
+        wa.send_interactive(identifier, build_service_select())
         return
 
     elif value == "menu_view":
-        citas = cal.get_citas_futuras(phone)
+        citas = cal.get_citas_futuras(identifier, phone=state.phone)
         state.step = VIEW_APPOINTMENTS
-        wa.send_interactive(phone, build_appointments_view(citas))
+        wa.send_interactive(identifier, build_appointments_view(citas))
 
     elif value == "menu_cancel":
-        citas = cal.get_citas_futuras(phone)
+        citas = cal.get_citas_futuras(identifier, phone=state.phone)
         if not citas:
-            wa.send_text_message(phone, msg_sin_citas())
-            _to_menu(phone)
+            wa.send_text_message(identifier, msg_sin_citas())
+            _to_menu(identifier)
             return
         state.cancel_citas = citas
         state.step = CANCEL_SELECT
-        wa.send_interactive(phone, build_cancel_select(citas))
+        wa.send_interactive(identifier, build_cancel_select(citas))
 
     elif value == "menu_move":
-        citas = cal.get_citas_futuras(phone)
+        citas = cal.get_citas_futuras(identifier, phone=state.phone)
         if not citas:
-            wa.send_text_message(phone, msg_sin_citas())
-            _to_menu(phone)
+            wa.send_text_message(identifier, msg_sin_citas())
+            _to_menu(identifier)
             return
         state.move_citas = citas
         state.step = MOVE_SELECT_CITA
-        wa.send_interactive(phone, build_move_select(citas))
+        wa.send_interactive(identifier, build_move_select(citas))
 
     else:
         # First contact or unrecognized → show menu
-        wa.send_interactive(phone, build_main_menu())
+        wa.send_interactive(identifier, build_main_menu())
 
 
 # ── BOOK: SELECT SERVICE ───────────────────────────────────────────────────
 
-def _handle_book_select_service(phone: str, state: ConversationState, value: str):
+def _handle_book_select_service(identifier: str, state: ConversationState, value: str):
     if not value.startswith("service_"):
-        _to_menu(phone)
+        _to_menu(identifier)
         return
     key = value.removeprefix("service_")
     if key not in SERVICIOS:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
     state.selected_service = SERVICIOS[key]
 
@@ -367,8 +373,8 @@ def _handle_book_select_service(phone: str, state: ConversationState, value: str
         # Event flow: use event days from EVENTO_DIAS
         days = get_event_days()
         if not days:
-            wa.send_text_message(phone, msg_evento_sin_dias())
-            _to_menu(phone)
+            wa.send_text_message(identifier, msg_evento_sin_dias())
+            _to_menu(identifier)
             return
     else:
         days = get_next_days(BOOKING_WINDOW_DAYS)
@@ -385,12 +391,12 @@ def _handle_book_select_service(phone: str, state: ConversationState, value: str
         available_days = [d for d in days if slots_by_day.get(d)]
 
     if not available_days:
-        wa.send_text_message(phone, msg_sin_slots())
-        _to_menu(phone)
+        wa.send_text_message(identifier, msg_sin_slots())
+        _to_menu(identifier)
         return
     state.available_days = available_days
     state.step = BOOK_SELECT_DAY
-    wa.send_interactive(phone, build_days_list(available_days))
+    wa.send_interactive(identifier, build_days_list(available_days))
 
 
 # ── BOOK: SELECT DAY ───────────────────────────────────────────────────────
@@ -418,23 +424,23 @@ def _base_period_ranges(d: date) -> tuple:
     return morning_range, afternoon_range
 
 
-def _handle_book_select_day(phone: str, state: ConversationState, value: str):
+def _handle_book_select_day(identifier: str, state: ConversationState, value: str):
     if not state.selected_service:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     if not value.startswith("day_"):
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     try:
         selected_date = date.fromisoformat(value.removeprefix("day_"))
     except ValueError:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     if selected_date not in state.available_days:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     slots = cal.get_slots_disponibles(
@@ -444,17 +450,17 @@ def _handle_book_select_day(phone: str, state: ConversationState, value: str):
         presencia_cliente_min=state.selected_service['presencia_cliente_min'],
     )
     if not slots:
-        wa.send_text_message(phone, msg_sin_slots())
-        wa.send_interactive(phone, build_days_list(state.available_days))
+        wa.send_text_message(identifier, msg_sin_slots())
+        wa.send_interactive(identifier, build_days_list(state.available_days))
         return
 
     state.selected_date = selected_date
-    _go_to_hour_select(phone, state, selected_date, slots)
+    _go_to_hour_select(identifier, state, selected_date, slots)
 
 
 # ── BOOK: SELECT PERIOD ────────────────────────────────────────────────────
 
-def _handle_book_select_period(phone: str, state: ConversationState, value: str):
+def _handle_book_select_period(identifier: str, state: ConversationState, value: str):
     morning, afternoon = _split_periods(state.all_day_slots)
 
     if value == "period_morning":
@@ -463,55 +469,55 @@ def _handle_book_select_period(phone: str, state: ConversationState, value: str)
         slots = afternoon
     elif value == "back_to_day":
         state.step = BOOK_SELECT_DAY
-        wa.send_interactive(phone, build_days_list(state.available_days))
+        wa.send_interactive(identifier, build_days_list(state.available_days))
         return
     else:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     if not slots:
-        wa.send_text_message(phone, msg_sin_slots())
-        wa.send_interactive(phone, build_days_list(state.available_days))
+        wa.send_text_message(identifier, msg_sin_slots())
+        wa.send_interactive(identifier, build_days_list(state.available_days))
         state.step = BOOK_SELECT_DAY
         return
 
     state.available_slots = slots
     if state.selected_date is None:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
     state.step = BOOK_SELECT_HOUR
     wa.send_interactive(
-        phone, build_hours_list(state.selected_date, slots, came_from_period=True)
+        identifier, build_hours_list(state.selected_date, slots, came_from_period=True)
     )
 
 
 # ── BOOK: SELECT HOUR ──────────────────────────────────────────────────────
 
-def _handle_book_select_hour(phone: str, state: ConversationState, value: str):
+def _handle_book_select_hour(identifier: str, state: ConversationState, value: str):
     if value == "back_to_day":
         state.step = BOOK_SELECT_DAY
-        wa.send_interactive(phone, build_days_list(state.available_days))
+        wa.send_interactive(identifier, build_days_list(state.available_days))
         return
 
     if value == "back_to_period":
         morning, afternoon = _split_periods(state.all_day_slots)
         if morning and afternoon:
             if state.selected_date is None:
-                _to_menu(phone)
+                _to_menu(identifier)
                 return
             base_morning, base_afternoon = _base_period_ranges(state.selected_date)
             state.step = BOOK_SELECT_PERIOD
-            wa.send_interactive(phone, build_period_select(
+            wa.send_interactive(identifier, build_period_select(
                 state.selected_date,
                 base_morning or f"{morning[0]}-{morning[-1]}",
                 base_afternoon or f"{afternoon[0]}-{afternoon[-1]}",
             ))
         else:
-            _to_menu(phone)
+            _to_menu(identifier)
         return
 
     if not value.startswith("hour_"):
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     # Parse: hour_{YYYY-MM-DD}_{HHMM}
@@ -521,33 +527,35 @@ def _handle_book_select_hour(phone: str, state: ConversationState, value: str):
         raw_time = parts[1]  # '1030'
         slot = f"{raw_time[:2]}:{raw_time[2:]}"  # '10:30'
     except (ValueError, IndexError):
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     if selected_date != state.selected_date or slot not in state.available_slots:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     state.selected_slot = slot
     if state.move_source_event_id:
-        _execute_mover_cita(phone, state)
+        _execute_mover_cita(identifier, state)
     else:
         state.step = BOOK_ENTER_NAME
-        wa.send_text_message(phone, "¿Cuál es tu nombre y apellidos?")
+        wa.send_text_message(identifier, "¿Cuál es tu nombre y apellidos?")
 
 
 # ── BOOK: ENTER NAME ──────────────────────────────────────────────────────
 
 _NOMBRE_MAX_LEN = 100  # Calendar summary field is 1024 bytes; keep it reasonable
 
-def _handle_book_enter_name(phone: str, state: ConversationState, value: str):
+def _handle_book_enter_name(identifier: str, state: ConversationState, value: str):
     nombre = value.strip().replace('\n', ' ').replace('\r', '')
     if len(nombre) < 2:
-        wa.send_text_message(phone, "Por favor, escribe tu nombre (mínimo 2 letras).")
+        wa.send_text_message(
+            identifier, "Por favor, escribe tu nombre (mínimo 2 letras)."
+        )
         return
     if len(nombre) > _NOMBRE_MAX_LEN:
         wa.send_text_message(
-            phone, "El nombre es demasiado largo. Por favor, escribe tu nombre."
+            identifier, "El nombre es demasiado largo. Por favor, escribe tu nombre."
         )
         return
 
@@ -556,18 +564,22 @@ def _handle_book_enter_name(phone: str, state: ConversationState, value: str):
         or not state.selected_slot
         or state.selected_service is None
     ):
-        logger.error("[CONV] _handle_book_enter_name: incomplete state for %s", phone)
-        _to_menu(phone)
+        logger.error("[CONV] _handle_book_enter_name: incomplete state for %s",
+                     identifier)
+        _to_menu(identifier)
         return
 
     state.nombre = nombre
     d = state.selected_date
     hora = state.selected_slot
 
-    event_id, reason = cal.reservar_cita(d, hora, nombre, phone, state.selected_service)
+    event_id, reason = cal.reservar_cita(
+        d, hora, nombre, identifier, state.selected_service,
+        telefono=state.phone,
+    )
 
     if reason == 'slot_taken':
-        logger.warning(f"[CONV] Slot {d} {hora} taken for {phone}")
+        logger.warning(f"[CONV] Slot {d} {hora} taken for {identifier}")
         slots = cal.get_slots_disponibles(
             d,
             mode=state.mode,
@@ -575,40 +587,40 @@ def _handle_book_enter_name(phone: str, state: ConversationState, value: str):
             presencia_cliente_min=state.selected_service['presencia_cliente_min'],
         )
         if slots:
-            wa.send_text_message(phone, msg_slot_no_disponible())
-            _go_to_hour_select(phone, state, d, slots)
+            wa.send_text_message(identifier, msg_slot_no_disponible())
+            _go_to_hour_select(identifier, state, d, slots)
         else:
-            wa.send_text_message(phone, msg_sin_slots())
+            wa.send_text_message(identifier, msg_sin_slots())
             state.step = BOOK_SELECT_DAY
-            wa.send_interactive(phone, build_days_list(state.available_days))
+            wa.send_interactive(identifier, build_days_list(state.available_days))
 
     elif reason == 'error':
-        wa.send_text_message(phone, msg_error_creando_cita())
-        _to_menu(phone)
+        wa.send_text_message(identifier, msg_error_creando_cita())
+        _to_menu(identifier)
 
     else:
         _ctx.committed = True
         wa.send_interactive(
-            phone,
+            identifier,
             build_back_to_menu_message(
                 msg_cita_confirmada(d, hora, state.selected_service)
             ),
         )
-        _clear(phone)
+        _clear(identifier)
 
 
 # ── MOVE: SELECT CITA ─────────────────────────────────────────────────────
 
-def _handle_move_select_cita(phone: str, state: ConversationState, value: str):
+def _handle_move_select_cita(identifier: str, state: ConversationState, value: str):
     if not value.startswith("move_appt_"):
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     event_id = value.removeprefix("move_appt_")
     cita = next((c for c in state.move_citas if c['id'] == event_id), None)
     if cita is None:
-        wa.send_text_message(phone, msg_cita_no_encontrada())
-        _to_menu(phone)
+        wa.send_text_message(identifier, msg_cita_no_encontrada())
+        _to_menu(identifier)
         return
 
     nombre = parse_nombre(cita.get('description', '') or '')
@@ -617,18 +629,18 @@ def _handle_move_select_cita(phone: str, state: ConversationState, value: str):
     state.move_source_nombre = nombre
     state.move_source_event_id = event_id
     state.step = BOOK_SELECT_SERVICE
-    wa.send_interactive(phone, build_service_select())
+    wa.send_interactive(identifier, build_service_select())
 
 
-def _execute_mover_cita(phone: str, state: ConversationState):
+def _execute_mover_cita(identifier: str, state: ConversationState):
     if (
         not state.selected_date
         or not state.selected_slot
         or state.selected_service is None
         or not state.move_source_event_id
     ):
-        logger.error("[CONV] _execute_mover_cita: incomplete state for %s", phone)
-        _to_menu(phone)
+        logger.error("[CONV] _execute_mover_cita: incomplete state for %s", identifier)
+        _to_menu(identifier)
         return
 
     d = state.selected_date
@@ -637,11 +649,12 @@ def _execute_mover_cita(phone: str, state: ConversationState):
     new_event_id, reason = cal.mover_cita(
         state.move_source_event_id, d, hora,
         state.move_source_nombre or "Cliente",
-        phone, state.selected_service,
+        identifier, state.selected_service,
+        telefono=state.phone,
     )
 
     if reason == 'slot_taken':
-        logger.warning(f"[CONV] Move slot {d} {hora} taken for {phone}")
+        logger.warning(f"[CONV] Move slot {d} {hora} taken for {identifier}")
         slots = cal.get_slots_disponibles(
             d,
             mode=state.mode,
@@ -649,69 +662,72 @@ def _execute_mover_cita(phone: str, state: ConversationState):
             presencia_cliente_min=state.selected_service['presencia_cliente_min'],
         )
         if slots:
-            wa.send_text_message(phone, msg_slot_no_disponible())
-            _go_to_hour_select(phone, state, d, slots)
+            wa.send_text_message(identifier, msg_slot_no_disponible())
+            _go_to_hour_select(identifier, state, d, slots)
         else:
-            wa.send_text_message(phone, msg_sin_slots())
+            wa.send_text_message(identifier, msg_sin_slots())
             state.step = BOOK_SELECT_DAY
-            wa.send_interactive(phone, build_days_list(state.available_days))
+            wa.send_interactive(identifier, build_days_list(state.available_days))
 
     elif reason == 'error':
-        wa.send_text_message(phone, msg_error_creando_cita())
-        _to_menu(phone)
+        wa.send_text_message(identifier, msg_error_creando_cita())
+        _to_menu(identifier)
 
     else:
         _ctx.committed = True
         wa.send_interactive(
-            phone,
+            identifier,
             build_back_to_menu_message(
                 msg_cita_movida(d, hora, state.selected_service)
             ),
         )
-        _clear(phone)
+        _clear(identifier)
 
 
 # ── VIEW APPOINTMENTS ──────────────────────────────────────────────────────
 
-def _handle_view_appointments(phone: str, state: ConversationState, value: str):
+def _handle_view_appointments(identifier: str, state: ConversationState, value: str):
     # Any interaction (tap on a cita row or back_to_menu) → go to menu
-    _to_menu(phone)
+    _to_menu(identifier)
 
 
 # ── CANCEL: SELECT ─────────────────────────────────────────────────────────
 
-def _handle_cancel_select(phone: str, state: ConversationState, value: str):
+def _handle_cancel_select(identifier: str, state: ConversationState, value: str):
     if not value.startswith("cancel_appt_"):
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     event_id = value.removeprefix("cancel_appt_")
     if not event_id:
-        _to_menu(phone)
+        _to_menu(identifier)
         return
 
     # Look up event in cached citas
     citas = state.cancel_citas
     cita = next((c for c in citas if c['id'] == event_id), None)
     if not cita:
-        wa.send_text_message(phone, "No se encontró esa cita.")
-        _to_menu(phone)
+        wa.send_text_message(identifier, "No se encontró esa cita.")
+        _to_menu(identifier)
         return
 
     if cal.cancelar_cita(event_id):
         _ctx.committed = True
-        wa.send_interactive(phone, build_back_to_menu_message(msg_cancelacion_ok()))
-        _clear(phone)
+        wa.send_interactive(
+            identifier, build_back_to_menu_message(msg_cancelacion_ok())
+        )
+        _clear(identifier)
     else:
         wa.send_text_message(
-            phone, "No se pudo cancelar la cita. Por favor, contáctanos."
+            identifier, "No se pudo cancelar la cita. Por favor, contáctanos."
         )
-        _to_menu(phone)
+        _to_menu(identifier)
 
 
 # ── REMINDER RESPONSES ─────────────────────────────────────────────────────
 
-def _handle_reminder_response(phone: str, interactive_id: str):
+def _handle_reminder_response(identifier: str, phone: Optional[str],
+                               interactive_id: str):
     """
     Handle quick reply buttons from reminder template.
     reminder_confirm_{event_id} → confirm appointment
@@ -719,36 +735,37 @@ def _handle_reminder_response(phone: str, interactive_id: str):
     """
     if interactive_id.startswith("reminder_confirm_"):
         event_id = interactive_id.removeprefix("reminder_confirm_")
-        cita = cal.get_event_by_id(event_id, phone)
+        cita = cal.get_event_by_id(event_id, identifier, phone=phone)
         if not cita:
-            wa.send_text_message(phone, "No se encontró esa cita.")
-            _to_menu(phone)
+            wa.send_text_message(identifier, "No se encontró esa cita.")
+            _to_menu(identifier)
             return
         if cal.confirmar_cita(event_id):
             _ctx.committed = True
-            wa.send_text_message(phone, "¡Tu cita está confirmada! ✅")
+            wa.send_text_message(identifier, "¡Tu cita está confirmada! ✅")
         else:
             wa.send_text_message(
-                phone, "No se pudo confirmar la cita. Por favor, contáctanos."
+                identifier, "No se pudo confirmar la cita. Por favor, contáctanos."
             )
-        _to_menu(phone)
+        _to_menu(identifier)
 
     elif interactive_id.startswith("reminder_cancel_"):
         event_id = interactive_id.removeprefix("reminder_cancel_")
-        cita = cal.get_event_by_id(event_id, phone)
+        cita = cal.get_event_by_id(event_id, identifier, phone=phone)
         if not cita:
-            wa.send_text_message(phone, "No se encontró esa cita.")
-            _to_menu(phone)
+            wa.send_text_message(identifier, "No se encontró esa cita.")
+            _to_menu(identifier)
             return
         if cal.cancelar_cita(event_id):
             _ctx.committed = True
-            wa.send_interactive(phone, build_back_to_menu_message(msg_cancelacion_ok()))
-            _clear(phone)
+            wa.send_interactive(identifier,
+                                 build_back_to_menu_message(msg_cancelacion_ok()))
+            _clear(identifier)
         else:
             wa.send_text_message(
-                phone, "No se pudo cancelar la cita. Por favor, contáctanos."
+                identifier, "No se pudo cancelar la cita. Por favor, contáctanos."
             )
-            _to_menu(phone)
+            _to_menu(identifier)
 
     else:
-        _to_menu(phone)
+        _to_menu(identifier)

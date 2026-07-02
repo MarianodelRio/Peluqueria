@@ -15,7 +15,7 @@ WATCHDOG_INTERVAL := 0
 
 # ── Variables automáticas — no tocar ──────────────────────────────────────
 USER        := $(shell whoami)
-APP_DIR     := /home/$(USER)/app
+APP_DIR     := $(patsubst %/,%,$(dir $(abspath $(firstword $(MAKEFILE_LIST)))))
 VENV        := $(APP_DIR)/venv
 PYTHON      := $(VENV)/bin/python
 PIP         := $(VENV)/bin/pip
