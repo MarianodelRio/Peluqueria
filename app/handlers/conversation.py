@@ -25,6 +25,7 @@ import pytz
 from app.config import (
     TIMEZONE, ESTADO_EXPIRACION_MIN, HORARIO_BASE, BOOKING_WINDOW_DAYS,
     SERVICIOS, CITAS_CACHE_TTL_SEC, EVENTO_ACTIVO, ADMIN_PHONE, ADMIN_COMANDOS,
+    MAX_CITAS_ACTIVAS,
 )
 from app.utils.admin import (
     build_status_report, build_help_message, read_log_tail, schedule_restart,
@@ -46,6 +47,7 @@ from app.utils.messages import (
     msg_sin_citas, msg_error_creando_cita, msg_evento_sin_dias,
     msg_cita_movida, msg_cita_no_encontrada,
     msg_reintentar, msg_accion_ok_sin_confirmar,
+    msg_limite_citas, msg_nombre_por_texto,
 )
 from app.utils import metrics
 from app.utils.parser import parse_nombre
@@ -64,6 +66,8 @@ BOOK_ENTER_NAME = "BOOK_ENTER_NAME"
 VIEW_APPOINTMENTS = "VIEW_APPOINTMENTS"
 CANCEL_SELECT = "CANCEL_SELECT"
 MOVE_SELECT_CITA = "MOVE_SELECT_CITA"
+
+UNKNOWN_INPUT = "__unknown__"   # tipos de mensaje no soportados (audio, imagen…)
 
 
 @dataclass
@@ -341,6 +345,13 @@ def _go_to_hour_select(identifier: str, state: ConversationState, d: date, slots
 
 def _handle_menu(identifier: str, state: ConversationState, value: str):
     if value == "menu_book":
+        # get_citas_futuras returns [] on Calendar API failure, so the limit
+        # fails open by design (do not "fix" into fail-closed).
+        citas = cal.get_citas_futuras(identifier, phone=state.phone)
+        if len(citas) >= MAX_CITAS_ACTIVAS:
+            wa.send_text_message(identifier, msg_limite_citas())
+            _to_menu(identifier)
+            return
         state.step = BOOK_SELECT_SERVICE
         wa.send_interactive(identifier, build_service_select())
         return
@@ -349,6 +360,13 @@ def _handle_menu(identifier: str, state: ConversationState, value: str):
         # No-op when event is not active (guard against stale/replayed messages)
         if not EVENTO_ACTIVO:
             wa.send_interactive(identifier, build_main_menu())
+            return
+        # get_citas_futuras returns [] on Calendar API failure, so the limit
+        # fails open by design (do not "fix" into fail-closed).
+        citas = cal.get_citas_futuras(identifier, phone=state.phone)
+        if len(citas) >= MAX_CITAS_ACTIVAS:
+            wa.send_text_message(identifier, msg_limite_citas())
+            _to_menu(identifier)
             return
         state.mode = 'evento'
         state.step = BOOK_SELECT_SERVICE
@@ -575,6 +593,9 @@ def _handle_book_select_hour(identifier: str, state: ConversationState, value: s
 _NOMBRE_MAX_LEN = 100  # Calendar summary field is 1024 bytes; keep it reasonable
 
 def _handle_book_enter_name(identifier: str, state: ConversationState, value: str):
+    if value == UNKNOWN_INPUT:
+        wa.send_text_message(identifier, msg_nombre_por_texto())
+        return
     nombre = value.strip().replace('\n', ' ').replace('\r', '')
     if len(nombre) < 2:
         wa.send_text_message(

@@ -2,6 +2,7 @@
 """Residual text messages used alongside interactive messages."""
 from datetime import date
 
+from app.config import MAX_CITAS_ACTIVAS
 from app.utils.slots import format_date_es
 
 
@@ -70,3 +71,14 @@ def msg_reintentar() -> str:
 def msg_accion_ok_sin_confirmar() -> str:
     return ("Tu solicitud se ha registrado correctamente ✅, aunque no pudimos "
             "enviarte la confirmación. Puedes revisarla en «Ver mis citas».")
+
+
+def msg_limite_citas() -> str:
+    return (
+        f"Ya tienes {MAX_CITAS_ACTIVAS} citas reservadas, que es el máximo. "
+        "Si necesitas otra, puedes cancelar o mover una desde el menú 😊"
+    )
+
+
+def msg_nombre_por_texto() -> str:
+    return "Por favor, escribe tu nombre en un mensaje de texto 🙂"

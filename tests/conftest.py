@@ -85,6 +85,12 @@ def make_cita_description(nombre="Ana García", telefono="34600000001",
 
 # ── Common mock fixtures ────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def _no_app_secret(monkeypatch):
+    """Los tests postean payloads sin firmar; neutraliza el secret del .env local."""
+    monkeypatch.setattr("app.handlers.webhook.WHATSAPP_APP_SECRET", "")
+
+
 @pytest.fixture
 def mock_wa(monkeypatch):
     """Patch all WhatsApp send functions to no-ops returning True."""

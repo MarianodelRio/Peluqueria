@@ -334,6 +334,7 @@ TIMEZONE = "Europe/Madrid"
 # ── Appointment settings ───────────────────────────────────────────────────
 CITA_DURACION_MIN = 30
 ESTADO_EXPIRACION_MIN = 30
+MAX_CITAS_ACTIVAS = 5   # máximo de citas futuras simultáneas por cliente
 
 # ── Scheduler intervals (minutes) ─────────────────────────────────────────
 SYNC_MANUAL_INTERVAL_MIN = 60

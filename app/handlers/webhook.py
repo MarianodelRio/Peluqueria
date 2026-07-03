@@ -28,7 +28,7 @@ from app.config import (
     WHATSAPP_APP_SECRET,
     WHATSAPP_VERIFY_TOKEN,
 )
-from app.handlers.conversation import handle_message
+from app.handlers.conversation import handle_message, UNKNOWN_INPUT
 from app.services import whatsapp as wa
 from app.utils import metrics
 from app.utils.dedup import MessageDeduplicator
@@ -217,7 +217,7 @@ def _validate_and_extract(msg: dict, ip: str) -> dict | None:
             "[WEBHOOK] unsupported type '%s' from %s → fallback",
             msg_type, mask_phone(identifier),
         )
-        return {"identifier": identifier, "phone": phone, "text": "__unknown__",
+        return {"identifier": identifier, "phone": phone, "text": UNKNOWN_INPUT,
                 "interactive_id": None}
 
 

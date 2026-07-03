@@ -104,6 +104,28 @@ class TestMenuState:
         state = conv._get(PHONE)
         assert state.step == conv.CANCEL_SELECT
 
+    def test_menu_book_limit_reached_shows_message(self, mock_wa, mock_cal):
+        """5 active citas → limit message, back to menu, service select never shown."""
+        import app.handlers.conversation as conv
+        mock_cal.get_citas_futuras.return_value = [
+            {"id": f"evt{i}", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
+            for i in range(5)
+        ]
+        send(interactive_id="menu_book")
+        mock_wa.send_text_message.assert_called()
+        assert conv._states.get(PHONE) is None
+
+    def test_menu_book_under_limit_normal_flow(self, mock_wa, mock_cal):
+        """4 active citas → normal flow, reaches BOOK_SELECT_SERVICE."""
+        import app.handlers.conversation as conv
+        mock_cal.get_citas_futuras.return_value = [
+            {"id": f"evt{i}", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
+            for i in range(4)
+        ]
+        send(interactive_id="menu_book")
+        state = conv._get(PHONE)
+        assert state.step == conv.BOOK_SELECT_SERVICE
+
 
 # ── BOOK_SELECT_SERVICE ────────────────────────────────────────────────────────
 
@@ -162,6 +184,14 @@ class TestBookSelectDay:
         state.available_days = [date(2026, 3, 23), date(2026, 3, 24)]
         state.selected_service = SERVICIOS["corte"]
         return state
+
+    def test_unsupported_message_type_resets_to_menu(self, mock_wa, mock_cal):
+        """__unknown__ outside BOOK_ENTER_NAME follows the normal
+        'text outside MENU → menu to menu' rule (regression check)."""
+        import app.handlers.conversation as conv
+        self.setup_state()
+        send(text="__unknown__")
+        assert conv._states.get(PHONE) is None
 
     def test_valid_day_both_periods_goes_to_period_select(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
@@ -362,6 +392,22 @@ class TestBookEnterName:
         send(interactive_id="book_confirm")
         import app.handlers.conversation as conv
         assert conv._states.get(PHONE) is None
+
+    def test_unsupported_message_type_asks_for_text_name(self, mock_wa, mock_cal):
+        """Unsupported input (audio/image/sticker) must not be booked as a
+        name — state is preserved so the client can resend a text name."""
+        import app.handlers.conversation as conv
+        self.setup_state()
+        send(text="__unknown__")
+        assert conv._get(PHONE).step == conv.BOOK_ENTER_NAME
+        mock_wa.send_text_message.assert_called()
+        mock_cal.reservar_cita.assert_not_called()
+
+        # A following text name completes the booking normally.
+        mock_cal.reservar_cita.return_value = ("evt_new", None)
+        send(text="Ana García")
+        assert conv._states.get(PHONE) is None
+        mock_wa.send_interactive.assert_called()
 
 
 # ── BOOK_ENTER_NAME (booking outcomes) ────────────────────────────────────────
@@ -736,6 +782,18 @@ class TestEventBookingFlow:
         state = conv._get(PHONE)
         assert state.mode == 'normal'
 
+    def test_menu_book_event_limit_reached_shows_message(self, mock_wa, mock_cal):
+        """5 active citas + EVENTO_ACTIVO → limit message, back to menu."""
+        import app.handlers.conversation as conv
+        mock_cal.get_citas_futuras.return_value = [
+            {"id": f"evt{i}", "start": TZ.localize(datetime(2026, 3, 25, 10, 0))}
+            for i in range(5)
+        ]
+        with patch("app.handlers.conversation.EVENTO_ACTIVO", True):
+            send(interactive_id="menu_book_event")
+        mock_wa.send_text_message.assert_called()
+        assert conv._states.get(PHONE) is None
+
     def test_event_service_select_uses_get_event_days(self, mock_wa, mock_cal):
         """When mode='evento', _handle_book_select_service calls
         get_event_days (not get_next_days)."""
@@ -859,6 +917,16 @@ class TestMoveFlow:
     def test_menu_move_with_citas_transitions_to_move_select(self, mock_wa, mock_cal):
         import app.handlers.conversation as conv
         mock_cal.get_citas_futuras.return_value = [self.make_cita()]
+        send(interactive_id="menu_move")
+        state = conv._get(PHONE)
+        assert state.step == conv.MOVE_SELECT_CITA
+
+    def test_menu_move_with_5_citas_still_transitions(self, mock_wa, mock_cal):
+        """menu_move is not subject to MAX_CITAS_ACTIVAS — always works."""
+        import app.handlers.conversation as conv
+        mock_cal.get_citas_futuras.return_value = [
+            self.make_cita(f"evt{i}") for i in range(5)
+        ]
         send(interactive_id="menu_move")
         state = conv._get(PHONE)
         assert state.step == conv.MOVE_SELECT_CITA
