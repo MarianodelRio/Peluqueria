@@ -575,7 +575,7 @@ def _handle_book_enter_name(identifier: str, state: ConversationState, value: st
 
     event_id, reason = cal.reservar_cita(
         d, hora, nombre, identifier, state.selected_service,
-        telefono=state.phone,
+        telefono=state.phone, mode=state.mode,
     )
 
     if reason == 'slot_taken':
@@ -650,7 +650,7 @@ def _execute_mover_cita(identifier: str, state: ConversationState):
         state.move_source_event_id, d, hora,
         state.move_source_nombre or "Cliente",
         identifier, state.selected_service,
-        telefono=state.phone,
+        telefono=state.phone, mode=state.mode,
     )
 
     if reason == 'slot_taken':

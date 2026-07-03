@@ -147,7 +147,7 @@ El fichero `config.yaml` en la raíz contiene toda la configuración del negocio
 negocio:
   nombre: "Mi Peluquería"
   telefono_contacto: "+34 600 000 000"  # número del negocio (para el QR)
-  admin_phone: "34600000000"             # recibe alertas del watchdog y puede usar /estado
+  admin_phone: "34600000000"             # habilita los comandos admin por WhatsApp: /status, /help, /logs, /restart
 
 horario:
   lunes:
@@ -228,24 +228,6 @@ Recuerda que tienes cita el {{1}} a las {{2}}. ¿Confirmas tu asistencia?
 ```
 **Botón 1 respuesta rápida:** `Confirmar`
 **Botón 2 respuesta rápida:** `Cancelar`
-
----
-
-### Template 3 — `alerta_sistema`
-
-| Campo | Valor |
-|---|---|
-| Nombre | `alerta_sistema` |
-| Categoría | `Utility` |
-| Idioma | `Español (España)` |
-
-**Cuerpo:**
-```
-⚠️ Alerta del sistema: {{1}}
-Fecha: {{2}}
-Detalle: {{3}}
-```
-Sin botones.
 
 ---
 
@@ -413,7 +395,7 @@ make start    # reinicia el bot con el nuevo código
 - RAM > 90% y disco > 90%
 - Spike de errores en `/metrics`
 
-Si detecta un problema envía un WhatsApp al `ADMIN_PHONE` usando el template `alerta_sistema` (cooldown de 30 min entre alertas del mismo tipo).
+Si detecta un problema registra una ALERTA en `/var/log/peluqueria/watchdog.log` (cooldown de 30 min por tipo de alerta; 2 h para errors_spike). Consúltalo con `make logs-watchdog`.
 
 **Reinicio nocturno** — `peluqueria-restart.timer` reinicia el bot cada noche a las 4:00 AM. Limpia memoria, conexiones colgadas y estados de conversación.
 
@@ -446,7 +428,7 @@ Peluqueria/
 │       ├── messages.py         # Textos en español
 │       ├── parser.py           # Parseo de descripciones de eventos de Calendar
 │       ├── slots.py            # Generación y filtrado de slots horarios
-│       ├── admin.py            # Informe de estado para el comando /estado
+│       ├── admin.py            # Informe de estado para los comandos admin (/status, /help, /logs, /restart)
 │       ├── metrics.py          # Contadores en memoria
 │       ├── dedup.py            # Deduplicación de mensajes entrantes
 │       ├── rate_limiter.py     # Rate limiting por IP y por teléfono

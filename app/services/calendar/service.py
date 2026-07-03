@@ -209,13 +209,15 @@ def slot_sigue_libre(
     hora: str,
     duracion_min: int = 30,
     presencia_cliente_min: int = 30,
+    *,
+    mode: str = 'normal',
 ) -> bool:
     """
     Re-check if a specific slot is still available.
     Always bypasses cache — called inside the booking lock for anti-race guarantee.
     """
     available = get_slots_disponibles(
-        d, mode='normal', bypass_cache=True,
+        d, mode=mode, bypass_cache=True,
         duracion_min=duracion_min, presencia_cliente_min=presencia_cliente_min,
     )
     return hora in available
@@ -225,7 +227,7 @@ def slot_sigue_libre(
 
 def reservar_cita(
     d: date, hora: str, nombre: str, wa_id: str, servicio: dict, *,
-    telefono=None,
+    telefono=None, mode: str = 'normal',
 ) -> tuple:
     """
     Atomic booking: acquire per-slot lock → re-validate → create.
@@ -243,6 +245,7 @@ def reservar_cita(
             d, hora,
             duracion_min=servicio['duracion_min'],
             presencia_cliente_min=presencia,
+            mode=mode,
         ):
             return None, 'slot_taken'
         event_id = crear_cita(d, hora, nombre, wa_id, servicio=servicio,
@@ -254,7 +257,7 @@ def reservar_cita(
 
 def mover_cita(
     source_event_id: str, d: date, hora: str, nombre: str, wa_id: str,
-    servicio: dict, *, telefono=None,
+    servicio: dict, *, telefono=None, mode: str = 'normal',
 ) -> tuple:
     """
     Atomic move: acquire per-slot lock → re-validate → create new → delete old.
@@ -271,6 +274,7 @@ def mover_cita(
             d, hora,
             duracion_min=servicio['duracion_min'],
             presencia_cliente_min=presencia,
+            mode=mode,
         ):
             return None, 'slot_taken'
         new_event_id = crear_cita(d, hora, nombre, wa_id, servicio=servicio,
@@ -279,8 +283,16 @@ def mover_cita(
             return None, 'error'
 
     if not cancelar_cita(source_event_id):
-        logger.warning(
-            f"[CAL] mover_cita: failed to delete source event {source_event_id}"
+        # Rollback: eliminar la cita recién creada para no dejar duplicado
+        if cancelar_cita(new_event_id):
+            logger.warning(
+                "[CAL] mover_cita: rollback OK, source %s intacta", source_event_id
+            )
+            return None, 'error'
+        logger.critical(
+            "[CAL] mover_cita: DUPLICADO source=%s new=%s",
+            source_event_id, new_event_id,
         )
+        metrics.inc('move_duplicates')
 
     return new_event_id, None

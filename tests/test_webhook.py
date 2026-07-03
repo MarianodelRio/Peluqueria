@@ -187,6 +187,100 @@ class TestWebhookPost:
         assert resp.status_code == 200
         mock_handle.assert_not_called()
 
+    def test_multiple_entries_each_dispatched_once(self, mock_handle):
+        """Payload with 2 'entry' items, each with one message, dispatches both."""
+        payload = {
+            "entry": [
+                {"changes": [{"value": {"messages": [
+                    {"from": "34600000001", "id": "multi_1", "type": "text",
+                     "text": {"body": "Hola"}}
+                ]}}]},
+                {"changes": [{"value": {"messages": [
+                    {"from": "34600000002", "id": "multi_2", "type": "text",
+                     "text": {"body": "Adios"}}
+                ]}}]},
+            ]
+        }
+        resp = client.post("/webhook", json=payload)
+        assert resp.status_code == 200
+        assert mock_handle.call_count == 2
+
+    def test_multiple_changes_in_single_entry_each_dispatched_once(self, mock_handle):
+        """Payload with 1 'entry' but 2 'changes', each with one message,
+        dispatches both."""
+        payload = {
+            "entry": [{"changes": [
+                {"value": {"messages": [
+                    {"from": "34600000003", "id": "multi_3", "type": "text",
+                     "text": {"body": "Hola"}}
+                ]}},
+                {"value": {"messages": [
+                    {"from": "34600000004", "id": "multi_4", "type": "text",
+                     "text": {"body": "Adios"}}
+                ]}},
+            ]}]
+        }
+        resp = client.post("/webhook", json=payload)
+        assert resp.status_code == 200
+        assert mock_handle.call_count == 2
+
+
+class TestWebhookDedupBeforeRateLimit:
+    """Change 6: dedup must run before rate limiting, with a forget() escape
+    hatch so a rate-limited message can be redelivered later."""
+
+    def test_duplicate_does_not_consume_rate_limiter_budget(self, mock_handle):
+        from app.handlers.webhook import ip_rate_limiter, phone_rate_limiter
+        identifier = "34611112222"
+        phone_rate_limiter.reset(identifier)
+        try:
+            first = _make_payload(identifier, "text", body_text="Hola",
+                                  msg_id="rl_dup_1")
+            client.post("/webhook", json=first)  # consumes 1 of 20
+
+            # Flood retries of the SAME message_id — must be skipped by dedup
+            # without touching the rate limiter budget.
+            for _ in range(25):
+                client.post("/webhook", json=first)
+
+            # A genuinely new message must still get through — proves the
+            # duplicate flood never consumed rate-limiter budget.
+            second = _make_payload(identifier, "text", body_text="Adios",
+                                   msg_id="rl_dup_2")
+            resp = client.post("/webhook", json=second)
+            assert resp.status_code == 200
+            assert mock_handle.call_count == 2
+        finally:
+            phone_rate_limiter.reset(identifier)
+            ip_rate_limiter.reset("testclient")
+
+    def test_rate_limited_message_redelivered_after_forget(self, mock_handle):
+        from app.handlers.webhook import ip_rate_limiter, phone_rate_limiter
+        identifier = "34633334444"
+        phone_rate_limiter.reset(identifier)
+        try:
+            # Exhaust the phone rate limiter budget (limit=20) with distinct ids.
+            for i in range(20):
+                payload = _make_payload(identifier, "text", body_text="x",
+                                        msg_id=f"rl_fill_{i}")
+                client.post("/webhook", json=payload)
+            assert mock_handle.call_count == 20
+
+            # Next message is rejected by rate limiting.
+            rejected = _make_payload(identifier, "text", body_text="rejected",
+                                     msg_id="rl_rejected")
+            client.post("/webhook", json=rejected)
+            assert mock_handle.call_count == 20
+
+            # Once the limiter allows traffic again, the SAME message_id must
+            # still be deliverable — proves forget() was called on rejection.
+            phone_rate_limiter.reset(identifier)
+            client.post("/webhook", json=rejected)
+            assert mock_handle.call_count == 21
+        finally:
+            phone_rate_limiter.reset(identifier)
+            ip_rate_limiter.reset("testclient")
+
 
 class TestWebhookBsuid:
     """Tests for BSUID (Business-Scoped User ID) identifier handling."""

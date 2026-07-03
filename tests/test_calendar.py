@@ -427,6 +427,109 @@ class TestReservarCita:
         # depending on timing, but combined there should be 2 results total
         assert len(results) == 2
 
+    def test_forwards_non_default_mode_to_get_slots_disponibles(
+        self, cal_with_service
+    ):
+        """reservar_cita → slot_sigue_libre must forward mode='evento' into
+        get_slots_disponibles instead of hardcoding 'normal'."""
+        cal, svc = cal_with_service
+        with (
+            patch(
+                "app.services.calendar.service.get_slots_disponibles",
+                return_value=["10:00"],
+            ) as mock_slots,
+            patch("app.services.calendar.service.crear_cita", return_value="new_evt"),
+        ):
+            event_id, reason = cal.reservar_cita(
+                date(2026, 3, 24), "10:00", "Ana", "34600000001", SERVICIOS["corte"],
+                mode="evento",
+            )
+        assert event_id == "new_evt"
+        assert reason is None
+        mock_slots.assert_called_once()
+        assert mock_slots.call_args.kwargs["mode"] == "evento"
+
+
+class TestSlotSigueLibreMode:
+    def test_default_mode_is_normal(self, cal_with_service):
+        cal, svc = cal_with_service
+        with patch(
+            "app.services.calendar.service.get_slots_disponibles",
+            return_value=["10:00"],
+        ) as mock_slots:
+            cal.slot_sigue_libre(date(2026, 3, 24), "10:00")
+        assert mock_slots.call_args.kwargs["mode"] == "normal"
+
+    def test_forwards_mode_evento(self, cal_with_service):
+        cal, svc = cal_with_service
+        with patch(
+            "app.services.calendar.service.get_slots_disponibles",
+            return_value=["10:00"],
+        ) as mock_slots:
+            cal.slot_sigue_libre(date(2026, 3, 24), "10:00", mode="evento")
+        assert mock_slots.call_args.kwargs["mode"] == "evento"
+
+
+# ── mover_cita (atomic) ──────────────────────────────────────────────────────
+
+class TestMoverCita:
+    def test_success(self, cal_with_service):
+        cal, svc = cal_with_service
+        with (
+            patch("app.services.calendar.service.slot_sigue_libre", return_value=True),
+            patch("app.services.calendar.service.crear_cita", return_value="new_evt"),
+            patch("app.services.calendar.service.cancelar_cita", return_value=True),
+        ):
+            new_event_id, reason = cal.mover_cita(
+                "old_evt", date(2026, 3, 24), "10:00", "Ana", "34600000001",
+                SERVICIOS["corte"],
+            )
+        assert new_event_id == "new_evt"
+        assert reason is None
+
+    def test_source_delete_fails_rollback_succeeds(self, cal_with_service):
+        """Source delete fails but rollback (deleting the new event) succeeds →
+        (None, 'error'), cancelar_cita called twice (source, then new)."""
+        cal, svc = cal_with_service
+        with (
+            patch("app.services.calendar.service.slot_sigue_libre", return_value=True),
+            patch("app.services.calendar.service.crear_cita", return_value="new_evt"),
+            patch(
+                "app.services.calendar.service.cancelar_cita",
+                side_effect=[False, True],
+            ) as mock_cancelar,
+        ):
+            result = cal.mover_cita(
+                "old_evt", date(2026, 3, 24), "10:00", "Ana", "34600000001",
+                SERVICIOS["corte"],
+            )
+        assert result == (None, "error")
+        assert mock_cancelar.call_count == 2
+        mock_cancelar.assert_any_call("old_evt")
+        mock_cancelar.assert_any_call("new_evt")
+
+    def test_both_deletes_fail_returns_success_and_increments_metric(
+        self, cal_with_service
+    ):
+        """Both the source delete and the rollback delete fail → the client's
+        booking intent is still fulfilled: return (new_event_id, None), but
+        alert ops via metrics."""
+        cal, svc = cal_with_service
+        with (
+            patch("app.services.calendar.service.slot_sigue_libre", return_value=True),
+            patch("app.services.calendar.service.crear_cita", return_value="new_evt"),
+            patch(
+                "app.services.calendar.service.cancelar_cita", return_value=False
+            ),
+            patch("app.services.calendar.service.metrics") as mock_metrics,
+        ):
+            result = cal.mover_cita(
+                "old_evt", date(2026, 3, 24), "10:00", "Ana", "34600000001",
+                SERVICIOS["corte"],
+            )
+        assert result == ("new_evt", None)
+        mock_metrics.inc.assert_called_once_with("move_duplicates")
+
 
 # ── cancelar_cita ──────────────────────────────────────────────────────────────
 
@@ -552,12 +655,15 @@ class TestGetEventosManualesSinConfirmar:
         assert result[0]['service_key'] == "corte"
 
     def test_service_key_none_for_unknown_title(self, cal_with_service):
+        # "Tinte" is defined in SERVICIOS (config.yaml) and now correctly
+        # resolves via parse_servicio_from_title — use a genuinely unknown
+        # service name instead.
         cal, svc = cal_with_service
         now = datetime.now(TZ)
         desc = "Nombre: Luis\nTelefono: 34600000002\nEstado: pendiente"
         svc.events.return_value.list.return_value.execute.return_value = {
             "items": [make_gc_event(
-                "evt1", "Tinte - Luis", desc,
+                "evt1", "Permanente - Luis", desc,
                 now + timedelta(days=1), now + timedelta(days=1, minutes=60)
             )]
         }

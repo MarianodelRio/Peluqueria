@@ -29,7 +29,7 @@ app/
       queries.py         # Read-only Calendar queries (scheduler jobs + client lookups)
       mutations.py       # Calendar writes: crear_cita, cancelar_cita, marcar_* fields
       engine.py          # Slot availability logic
-      caches.py          # Slot cache (30s TTL) + citas cache (60s TTL)
+      caches.py          # Slot cache (180s TTL) + citas cache (180s TTL)
       locks.py           # Per-slot booking locks (prevent double-booking)
       client.py          # Thread-local Google Calendar API client
       repository.py      # Raw Calendar API calls, range-batched fetch for day picker
@@ -57,7 +57,7 @@ All appointment events have these fields in the description (parsed by `parser.p
 Nombre: Juan García
 WaId: ES.1A2B3C4D5E6F...    ← always (bot key, for queries and sends)
 Telefono: 34612345678        ← only when phone is visible (for the barber)
-Servicio: corte | corte_barba | mechas
+Servicio: <clave definida en SERVICIOS, ver config.yaml>
 Estado: pendiente | confirmada
 Recordatorio: no | sí
 ```
@@ -82,13 +82,7 @@ Title-based config events — never treated as appointments:
 `lock → slot_sigue_libre(d, hora, duracion_min, presencia_cliente_min) → crear_cita(servicio) → _invalidate_slot_cache(d)`
 
 ### Services
-Three services are defined in `SERVICIOS` in `config.py`. Each affects slot generation and Calendar event duration:
-
-| Key | Display name | Price | `duracion_min` | `presencia_cliente_min` |
-|-----|-------------|-------|---------------|------------------------|
-| `corte` | Corte de pelo | 10 € | 30 min | 30 min |
-| `corte_barba` | Corte de pelo + barba | 12 € | 30 min | 30 min |
-| `mechas` | Mechas | 30 € | 60 min | 180 min |
+Services are defined in `SERVICIOS` in `config.py` / `config.yaml` → `servicios:` — see that file for the current list of keys, prices, and durations (do not duplicate values here to avoid drift).
 
 - `duracion_min` controls the Calendar event duration and the collision window with other events (active barber time).
 - `presencia_cliente_min` controls when the last slot of the day/period is offered (the client must finish before closing).
@@ -152,7 +146,7 @@ WHATSAPP_VERIFY_TOKEN=       # Required
 WHATSAPP_APP_SECRET=         # Required in production — enables HMAC webhook signature verification
 GOOGLE_CALENDAR_ID=          # Required
 GOOGLE_CREDENTIALS_PATH=     # Path to service account JSON (default: credentials.json)
-ADMIN_PHONE=                 # Required — digits only, no +. Receives watchdog alerts and /estado
+ADMIN_PHONE=                 # Required — digits only, no +. Habilita comandos admin por WhatsApp (/status, /help, /logs, /restart)
 PUBLIC_DOMAIN=               # Required — DuckDNS subdomain without https:// (e.g. peluqueriabot.duckdns.org)
 DUCKDNS_TOKEN=               # Required — DuckDNS account token (used by make services for SSL + IP updater)
 LOG_LEVEL=INFO               # Optional — DEBUG | INFO | WARNING | ERROR

@@ -133,14 +133,9 @@ def _parse_json_safely(body_bytes: bytes) -> dict | None:
 
 
 def _iter_messages(body: dict):
-    entry = body.get("entry", [])
-    if not entry:
-        return
-    changes = entry[0].get("changes", [])
-    if not changes:
-        return
-    value = changes[0].get("value", {})
-    yield from value.get("messages", [])
+    for entry in body.get("entry", []):
+        for change in entry.get("changes", []):
+            yield from change.get("value", {}).get("messages", [])
 
 
 def _extract_text(msg: dict, identifier: str) -> str | None:
@@ -187,10 +182,7 @@ def _validate_and_extract(msg: dict, ip: str) -> dict | None:
         logger.warning(f"[WEBHOOK] Invalid identifier format: {mask_phone(identifier)}")
         return None
     phone = from_raw if _is_phone(from_raw) else None
-    if not phone_rate_limiter.check(identifier):
-        logger.warning(f"[WEBHOOK] Rate limit exceeded for {mask_phone(identifier)}")
-        return None
-    metrics.inc('messages_received')
+
     message_id = msg.get("id", "")
     if message_id and _deduplicator.seen(message_id):
         logger.info(
@@ -198,6 +190,14 @@ def _validate_and_extract(msg: dict, ip: str) -> dict | None:
             message_id, mask_phone(identifier),
         )
         return None
+
+    if not phone_rate_limiter.check(identifier):
+        logger.warning(f"[WEBHOOK] Rate limit exceeded for {mask_phone(identifier)}")
+        if message_id:
+            _deduplicator.forget(message_id)
+        return None
+
+    metrics.inc('messages_received')
     msg_type = msg.get("type", "")
     if msg_type == "text":
         text = _extract_text(msg, identifier)

@@ -36,3 +36,10 @@ class TestMessageDeduplicator:
         dedup = MessageDeduplicator(ttl_minutes=10)
         assert dedup.seen("a") is False
         assert dedup.seen("b") is False
+
+    def test_forget_allows_id_to_be_seen_again(self):
+        dedup = MessageDeduplicator(ttl_minutes=10)
+        assert dedup.seen("id_1") is False
+        assert dedup.seen("id_1") is True
+        dedup.forget("id_1")
+        assert dedup.seen("id_1") is False

@@ -20,3 +20,7 @@ class MessageDeduplicator:
                 return True
             self._seen[message_id] = now
             return False
+
+    def forget(self, message_id: str) -> None:
+        with self._lock:
+            self._seen.pop(message_id, None)

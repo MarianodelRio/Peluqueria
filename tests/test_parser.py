@@ -315,7 +315,18 @@ class TestParseServicioFromTitle:
         assert result == ("mechas", "Ana Lopez")
 
     def test_unknown_returns_none(self):
-        assert parse_servicio_from_title("Tinte - Lucia") == (None, None)
+        assert parse_servicio_from_title("Permanente - Lucia") == (None, None)
+
+    def test_tinte_recognised_from_config(self):
+        # "tinte" is defined in SERVICIOS (config.yaml) — config-driven matching
+        # must recognise it even though it's not a hardcoded legacy alias.
+        assert parse_servicio_from_title("Tinte - Lucia") == ("tinte", "Lucia")
+
+    def test_corte_barba_beats_corte_longest_match_wins(self):
+        # "Corte de pelo + barba" must resolve to 'corte_barba', not 'corte' —
+        # verifies candidates are tried longest-pattern-first.
+        result = parse_servicio_from_title("Corte de pelo + barba - Ana")
+        assert result == ("corte_barba", "Ana")
 
     def test_empty_string(self):
         assert parse_servicio_from_title("") == (None, None)

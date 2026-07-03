@@ -164,8 +164,8 @@ def parse_servicio_from_title(title: str) -> tuple:
     Expected format: '<Servicio> - <Nombre>'
     Separator may be ' - ' (hyphen) or ' – ' (em-dash).
 
-    Returns (key, nombre_original) where key is one of 'corte', 'corte_barba',
-    'mechas', or (None, None) if the title does not match any known service.
+    Returns (key, nombre_original) where key is one of the keys in `SERVICIOS`,
+    or (None, None) if the title does not match any known service.
 
     The right part (nombre) is returned as-is from the ORIGINAL title,
     preserving original casing and accents.
@@ -188,14 +188,29 @@ def parse_servicio_from_title(title: str) -> tuple:
 
     left_norm = _norm(left_orig)
 
-    # Match order matters: most-specific first
-    if 'mechas' in left_norm:
-        return ('mechas', right_part.strip())
-    _barba_kws = ('corte y barba', 'corte+barba', 'corte barba', 'corte_barba')
-    if any(kw in left_norm for kw in _barba_kws):
-        return ('corte_barba', right_part.strip())
-    if 'corte' in left_norm:
-        return ('corte', right_part.strip())
+    # import local: evita ciclos y permite patch en tests
+    from app.config import SERVICIOS
+
+    _LEGACY_ALIASES = [
+        ('corte y barba', 'corte_barba'),
+        ('corte+barba',   'corte_barba'),
+        ('corte barba',   'corte_barba'),
+        ('corte_barba',   'corte_barba'),
+    ]
+
+    candidates = []
+    for key, svc in SERVICIOS.items():
+        candidates.append((_norm(svc.get('nombre', '')), key))
+        candidates.append((_norm(key.replace('_', ' ')), key))
+    candidates.extend(
+        (alias, key) for alias, key in _LEGACY_ALIASES if key in SERVICIOS
+    )
+    candidates = [(pat, key) for pat, key in candidates if pat]
+    candidates.sort(key=lambda t: -len(t[0]))
+
+    for pattern, key in candidates:
+        if pattern in left_norm:
+            return (key, right_part.strip())
 
     return (None, None)
 
