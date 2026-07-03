@@ -6,12 +6,13 @@ Read-only queries live in queries.py.
 All datetimes are timezone-aware (Europe/Madrid).
 """
 import logging
+import threading
 from datetime import date, datetime, timedelta
 from typing import List
 
 import pytz
 
-from app.config import TIMEZONE, EVENTO_DIAS
+from app.config import TIMEZONE, EVENTO_DIAS, SLOT_LOCK_TIMEOUT_SEC
 from app.utils import metrics
 
 from .caches import slot_cache
@@ -42,6 +43,22 @@ def _invalidate_slot_cache(d: date) -> None:
     slot_cache.invalidate_matching(
         lambda k: k.startswith(date_str) or k.startswith(f"evt_{date_str}")
     )
+
+
+# ── Single-flight fetch locks ────────────────────────────────────────────────
+# Prevents a cache-stampede: when many requests miss the cache for the same
+# key at once, only one thread performs the Calendar fetch; the rest wait
+# and then read the now-populated cache. Never acquire one of these while
+# holding a slot lock (bypass_cache=True path never touches this registry).
+_fetch_locks: dict = {}
+_fetch_guard = threading.Lock()
+
+
+def _get_fetch_lock(key: str) -> threading.Lock:
+    with _fetch_guard:
+        if key not in _fetch_locks:
+            _fetch_locks[key] = threading.Lock()
+        return _fetch_locks[key]
 
 
 # ── Unified slot availability ──────────────────────────────────────────────────
@@ -76,6 +93,31 @@ def get_slots_disponibles(
         if cached is not None:
             return _filter_past_hours_today(d, cached)
 
+        # Cache miss — single-flight: only one thread fetches per key, the
+        # rest wait here and then read the cache once it's populated.
+        fetch_lock = _get_fetch_lock(key)
+        with fetch_lock:
+            cached = slot_cache.get(key)
+            if cached is not None:
+                return _filter_past_hours_today(d, cached)
+
+            try:
+                events = events_repo.list_for_day(d)
+                result = compute_slots(
+                    d, events, duracion_min, presencia_cliente_min,
+                    event_horario=event_horario,
+                )
+            except Exception as e:
+                logger.error(
+                    f"[CAL] Error fetching slots for {d}: {e}", exc_info=True
+                )
+                metrics.inc('calendar_errors')
+                return []
+
+            # Store unfiltered — today-filter is applied on read
+            slot_cache.set(key, list(result))
+            return _filter_past_hours_today(d, result)
+
     try:
         events = events_repo.list_for_day(d)
         result = compute_slots(
@@ -86,10 +128,6 @@ def get_slots_disponibles(
         logger.error(f"[CAL] Error fetching slots for {d}: {e}", exc_info=True)
         metrics.inc('calendar_errors')
         return []
-
-    if not bypass_cache:
-        # Store unfiltered — today-filter is applied on read
-        slot_cache.set(key, list(result))
 
     return _filter_past_hours_today(d, result)
 
@@ -113,44 +151,68 @@ def get_slots_disponibles_for_days(
     """
     if not days:
         return {}
-    try:
-        start = min(days)
-        end = max(days)
-        events_by_day = events_repo.list_for_range(start, end)
 
-        result: dict = {}
+    start = min(days)
+    end = max(days)
+    range_key = f"range_{start}_{end}_{mode}_{duracion_min}_{presencia_cliente_min}"
 
-        for d in days:
-            event_horario = None
-            if mode == 'evento':
-                raw_ranges = EVENTO_DIAS.get(d.isoformat(), [])
-                event_horario = [(r[0], r[1]) for r in raw_ranges] if raw_ranges else []
-                if not event_horario:
-                    key = slot_cache_key(d, mode, duracion_min, presencia_cliente_min)
-                    slot_cache.set(key, [])
-                    result[d] = []
-                    continue
+    fetch_lock = _get_fetch_lock(range_key)
+    with fetch_lock:
+        # Re-check: if every day in the range already has a cached entry
+        # (possibly populated by a concurrent caller that just released this
+        # lock), assemble the result from cache without hitting the API.
+        cache_keys = {
+            d: slot_cache_key(d, mode, duracion_min, presencia_cliente_min)
+            for d in days
+        }
+        cached_values = {d: slot_cache.get(k) for d, k in cache_keys.items()}
+        if all(v is not None for v in cached_values.values()):
+            return {
+                d: _filter_past_hours_today(d, v)
+                for d, v in cached_values.items()
+                if v is not None
+            }
 
-            slots = compute_slots(
-                d, events_by_day.get(d, []), duracion_min, presencia_cliente_min,
-                event_horario=event_horario,
+        try:
+            events_by_day = events_repo.list_for_range(start, end)
+
+            result: dict = {}
+
+            for d in days:
+                event_horario = None
+                if mode == 'evento':
+                    raw_ranges = EVENTO_DIAS.get(d.isoformat(), [])
+                    event_horario = (
+                        [(r[0], r[1]) for r in raw_ranges] if raw_ranges else []
+                    )
+                    if not event_horario:
+                        key = slot_cache_key(
+                            d, mode, duracion_min, presencia_cliente_min
+                        )
+                        slot_cache.set(key, [])
+                        result[d] = []
+                        continue
+
+                slots = compute_slots(
+                    d, events_by_day.get(d, []), duracion_min, presencia_cliente_min,
+                    event_horario=event_horario,
+                )
+
+                # Write unfiltered slots to cache
+                key = slot_cache_key(d, mode, duracion_min, presencia_cliente_min)
+                slot_cache.set(key, list(slots))
+
+                # Apply today-filter only to the returned value
+                result[d] = _filter_past_hours_today(d, slots)
+
+            return result
+        except Exception as e:
+            logger.error(
+                f"[CAL] Error in get_slots_disponibles_for_days: {e}",
+                exc_info=True,
             )
-
-            # Write unfiltered slots to cache
-            key = slot_cache_key(d, mode, duracion_min, presencia_cliente_min)
-            slot_cache.set(key, list(slots))
-
-            # Apply today-filter only to the returned value
-            result[d] = _filter_past_hours_today(d, slots)
-
-        return result
-    except Exception as e:
-        logger.error(
-            f"[CAL] Error in get_slots_disponibles_for_days: {e}",
-            exc_info=True,
-        )
-        metrics.inc('calendar_errors')
-        return {}
+            metrics.inc('calendar_errors')
+            return {}
 
 
 # ── Compatibility wrappers ────────────────────────────────────────────────────
@@ -240,7 +302,10 @@ def reservar_cita(
     """
     lock = slot_locks.get(d, hora)
     presencia = servicio['presencia_cliente_min']
-    with lock:
+    if not lock.acquire(timeout=SLOT_LOCK_TIMEOUT_SEC):
+        metrics.inc('slot_lock_timeout')
+        return None, 'slot_taken'
+    try:
         if not slot_sigue_libre(
             d, hora,
             duracion_min=servicio['duracion_min'],
@@ -253,6 +318,8 @@ def reservar_cita(
         if not event_id:
             return None, 'error'
         return event_id, None
+    finally:
+        lock.release()
 
 
 def mover_cita(
@@ -269,7 +336,10 @@ def mover_cita(
     """
     lock = slot_locks.get(d, hora)
     presencia = servicio['presencia_cliente_min']
-    with lock:
+    if not lock.acquire(timeout=SLOT_LOCK_TIMEOUT_SEC):
+        metrics.inc('slot_lock_timeout')
+        return None, 'slot_taken'
+    try:
         if not slot_sigue_libre(
             d, hora,
             duracion_min=servicio['duracion_min'],
@@ -281,6 +351,8 @@ def mover_cita(
                                   telefono=telefono)
         if not new_event_id:
             return None, 'error'
+    finally:
+        lock.release()
 
     if not cancelar_cita(source_event_id):
         # Rollback: eliminar la cita recién creada para no dejar duplicado

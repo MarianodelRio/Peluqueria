@@ -267,6 +267,11 @@ PUBLIC_DOMAIN=peluqueriabot.duckdns.org
 DUCKDNS_TOKEN=tu_token_de_duckdns
 ```
 
+Variables opcionales:
+```ini
+WHATSAPP_API_VERSION=v23.0   # versión de la Graph API de Meta (por defecto v23.0)
+```
+
 Coloca `credentials.json` en la raíz del proyecto.
 
 ### 4.3 Arrancar
@@ -394,10 +399,23 @@ make start    # reinicia el bot con el nuevo código
 - Dominio público (`PUBLIC_DOMAIN`) — accesible desde el exterior vía nginx
 - RAM > 90% y disco > 90%
 - Spike de errores en `/metrics`
+- Caducidad del certificado TLS — alerta si quedan menos de 15 días (`WATCHDOG_CERT_MIN_DAYS`)
 
 Si detecta un problema registra una ALERTA en `/var/log/peluqueria/watchdog.log` (cooldown de 30 min por tipo de alerta; 2 h para errors_spike). Consúltalo con `make logs-watchdog`.
 
 **Reinicio nocturno** — `peluqueria-restart.timer` reinicia el bot cada noche a las 4:00 AM. Limpia memoria, conexiones colgadas y estados de conversación.
+
+## 🗓️ Mantenimiento periódico
+
+| Tarea | Frecuencia | Cómo |
+|---|---|---|
+| Comprobar si Meta anunció caducidad de la versión de Graph API en uso (`WHATSAPP_API_VERSION`) | Cada 6 meses | Revisar https://developers.facebook.com/docs/graph-api/changelog/versions/ — si hay fecha anunciada, probar una versión más nueva en `.env` y reiniciar |
+| Revisar dependencias desactualizadas y CVEs | Cada 3-6 meses | `./venv/bin/pip list --outdated` + buscar avisos de seguridad de fastapi/httpx/google-auth antes de subir pins |
+| Reiniciar la VM completa (aplica parches de kernel pendientes) | Mensual | `sudo reboot` por SSH — todos los servicios rearrancan solos (systemd enable + cron persisten) |
+| Revisar quality rating del número y estado de los templates | Trimestral | Meta Business Suite → WhatsApp Manager |
+| Renovación del certificado TLS | Automática — el watchdog alerta si quedan <15 días | Comprobación manual: `sudo certbot renew --dry-run` |
+| Upgrade Ubuntu 22.04 → 24.04 | Antes de abril de 2027 | Planificar ventana de mantenimiento; alternativa: Ubuntu Pro (gratuito hasta 5 máquinas) |
+| Anuncio de Google sobre facturación de cuota de Calendar API | Vigilar durante 2026 | Google avisará con ≥90 días de antelación; al volumen actual (~60-90 llamadas/min en pico vs. límite de 600/min) el impacto esperado es nulo |
 
 ---
 

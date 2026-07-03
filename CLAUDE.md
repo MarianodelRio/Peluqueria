@@ -144,6 +144,7 @@ WHATSAPP_PHONE_NUMBER_ID=   # Required
 WHATSAPP_ACCESS_TOKEN=       # Required — must be a permanent System User token
 WHATSAPP_VERIFY_TOKEN=       # Required
 WHATSAPP_APP_SECRET=         # Required in production — enables HMAC webhook signature verification
+WHATSAPP_API_VERSION=        # Optional — Graph API version, default v23.0
 GOOGLE_CALENDAR_ID=          # Required
 GOOGLE_CREDENTIALS_PATH=     # Path to service account JSON (default: credentials.json)
 ADMIN_PHONE=                 # Required — digits only, no +. Habilita comandos admin por WhatsApp (/status, /help, /logs, /restart)
@@ -169,6 +170,7 @@ SSL:  Let's Encrypt cert via certbot DNS-01 challenge, auto-renewed every 90 day
 - uvicorn binds to `127.0.0.1` only — never exposed directly to the internet.
 - nginx passes `X-Real-IP` and `X-Forwarded-For` headers; uvicorn runs with `--proxy-headers` so `request.client.host` returns the real client IP for rate limiting.
 - `watchdog.py` monitors `PUBLIC_DOMAIN` health (check 5) — alert key `proxy_down`.
+- Tareas de mantenimiento periódico: ver README → Mantenimiento periódico.
 
 ---
 

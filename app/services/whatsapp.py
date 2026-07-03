@@ -4,7 +4,9 @@ import logging
 import threading
 import time
 import httpx
-from app.config import WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN
+from app.config import (
+    WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN, WHATSAPP_API_VERSION,
+)
 from app.utils import metrics
 
 logger = logging.getLogger(__name__)
@@ -14,7 +16,10 @@ def _mask(phone: str) -> str:
     """Mask phone for safe logging — show only last 4 digits."""
     return f"****{phone[-4:]}" if len(phone) > 4 else "****"
 
-_BASE_URL = f"https://graph.facebook.com/v23.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+_BASE_URL = (
+    f"https://graph.facebook.com/{WHATSAPP_API_VERSION}"
+    f"/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+)
 _HEADERS = {
     "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
     "Content-Type": "application/json",

@@ -150,6 +150,34 @@ def clean_expired_states():
     if purged:
         logger.info(f"[CONV] Purged {purged} past slot locks")
 
+    # Purge fetch-locks (single-flight cache-fill locks) for past dates.
+    # Only removes locks not currently held by an in-flight fetch.
+    from app.services.calendar import service as cal_service
+    cutoff_str = now.date().isoformat()
+    fetch_snapshot = list(cal_service._fetch_locks.items())
+    fetch_purged = 0
+    for key, flock in fetch_snapshot:
+        # key is "YYYY-MM-DD_...", "evt_YYYY-MM-DD_..." or
+        # "range_YYYY-MM-DD_YYYY-MM-DD_..."; a lock is safe to drop once its
+        # (first) date portion is entirely in the past.
+        if key.startswith("range_"):
+            date_part = key[len("range_"):]
+        elif key.startswith("evt_"):
+            date_part = key[len("evt_"):]
+        else:
+            date_part = key
+        if date_part[:10] >= cutoff_str:
+            continue
+        if flock.acquire(blocking=False):
+            try:
+                with cal_service._fetch_guard:
+                    cal_service._fetch_locks.pop(key, None)
+            finally:
+                flock.release()
+            fetch_purged += 1
+    if fetch_purged:
+        logger.info(f"[CONV] Purged {fetch_purged} past fetch locks")
+
     # Purge stale citas cache entries
     now_ts = _time.time()
     with cal._citas_cache_lock:

@@ -1,12 +1,13 @@
 """
 watchdog.py — Standalone health-check script for the Peluqueria bot.
 
-Run every 60 minutes via cron. Performs five checks:
+Run every 60 minutes via cron. Performs six checks:
   1. Bot /health endpoint (bot_down, bot_degraded)
   2. RAM usage (ram_critical)
   3. Disk usage (disk_critical)
   4. Error spike in /metrics (errors_spike)
   5. Public domain reachability (proxy_down)
+  6. TLS certificate expiry (cert_expiring)
 
 Logs a WARNING for each failed check. Per-alert cooldowns are persisted in a
 JSON state file to avoid log spam.
@@ -36,6 +37,7 @@ STATE_FILE = os.getenv("WATCHDOG_STATE_FILE", "/var/log/peluqueria/watchdog_stat
 RAM_PCT_THRESHOLD = int(os.getenv("WATCHDOG_RAM_CRITICAL_PCT", "90"))
 DISK_PCT_THRESHOLD = int(os.getenv("WATCHDOG_DISK_CRITICAL_PCT", "90"))
 ERROR_SPIKE_THRESHOLD = int(os.getenv("WATCHDOG_ERROR_SPIKE_THRESHOLD", "3"))
+CERT_MIN_DAYS = int(os.getenv("WATCHDOG_CERT_MIN_DAYS", "15"))
 
 COOLDOWN_STANDARD_SEC = 30 * 60       # 30 minutes
 COOLDOWN_ERRORS_SEC = 2 * 60 * 60     # 2 hours
@@ -51,6 +53,7 @@ def _default_state() -> dict:
             k: 0 for k in [
                 "bot_down", "bot_degraded", "ram_critical",
                 "disk_critical", "errors_spike", "proxy_down",
+                "cert_expiring",
             ]
         },
         "prev_metrics": {"calendar_errors": 0, "whatsapp_errors": 0},
@@ -191,6 +194,32 @@ def run_checks() -> None:
                 "proxy_down", COOLDOWN_STANDARD_SEC,
                 "PROXY CAIDO", str(exc),
             ))
+
+    # Check 6 — TLS certificate expiry (only when domain is configured and
+    # not already flagged as unreachable by check 5)
+    proxy_is_down = any(key == "proxy_down" for key, _, _, _ in alerts_fired)
+    if PUBLIC_DOMAIN and not proxy_is_down:
+        try:
+            import ssl
+            import socket
+            from datetime import datetime, timezone
+
+            ctx = ssl.create_default_context()
+            with socket.create_connection((PUBLIC_DOMAIN, 443), timeout=5) as sock:
+                with ctx.wrap_socket(sock, server_hostname=PUBLIC_DOMAIN) as ssock:
+                    not_after = ssock.getpeercert()["notAfter"]
+            expiry = datetime.strptime(
+                not_after, "%b %d %H:%M:%S %Y %Z"
+            ).replace(tzinfo=timezone.utc)
+            days_left = (expiry - datetime.now(timezone.utc)).days
+            if days_left < CERT_MIN_DAYS:
+                alerts_fired.append((
+                    "cert_expiring", COOLDOWN_ERRORS_SEC,
+                    f"CERTIFICADO CADUCA EN {days_left} DIAS",
+                    f"expira {expiry:%Y-%m-%d}",
+                ))
+        except Exception as exc:
+            logger.warning("[WATCHDOG] Could not check TLS cert expiry: %s", exc)
 
     # 4. Process fired alerts
     for key, cooldown_sec, label, detail in alerts_fired:

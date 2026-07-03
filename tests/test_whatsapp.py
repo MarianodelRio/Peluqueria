@@ -251,3 +251,15 @@ class TestDeliveryTracking:
         if hasattr(_delivery, "attempted"):
             del _delivery.attempted
         assert reply_was_delivered() is True
+
+
+# ── _BASE_URL / WHATSAPP_API_VERSION ─────────────────────────────────────────
+
+class TestBaseUrlApiVersion:
+    def test_default_base_url_is_v23(self):
+        """Without WHATSAPP_API_VERSION set, _BASE_URL uses the default v23.0."""
+        import app.services.whatsapp as wa_mod
+        assert wa_mod._BASE_URL == (
+            f"https://graph.facebook.com/v23.0/"
+            f"{wa_mod.WHATSAPP_PHONE_NUMBER_ID}/messages"
+        )

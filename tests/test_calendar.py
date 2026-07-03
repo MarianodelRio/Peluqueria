@@ -5,6 +5,7 @@ Google Calendar API is mocked entirely — no real credentials needed.
 """
 import pytest
 import threading
+import time
 from datetime import date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 import pytz
@@ -257,6 +258,91 @@ class TestGetSlotsDisponibles:
         assert "18:00" not in slots
 
 
+# ── single-flight cache fetch ────────────────────────────────────────────────
+
+class TestSingleFlightFetch:
+    def test_concurrent_same_day_single_repository_call(self, cal_with_service):
+        """N concurrent threads requesting the same day (cache miss) must
+        produce EXACTLY 1 repository call, and all threads get identical
+        results."""
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        d = date(2026, 3, 24)
+
+        call_count = [0]
+        count_lock = threading.Lock()
+
+        def slow_execute(*args, **kwargs):
+            with count_lock:
+                call_count[0] += 1
+            time.sleep(0.1)
+            return {"items": []}
+
+        svc.events.return_value.list.return_value.execute.side_effect = slow_execute
+
+        results = []
+        results_lock = threading.Lock()
+
+        def worker():
+            r = cal_module.get_slots_disponibles(d)
+            with results_lock:
+                results.append(r)
+
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert call_count[0] == 1
+        assert len(results) == 5
+        first = results[0]
+        assert all(r == first for r in results)
+
+    def test_concurrent_same_range_single_repository_call(self, cal_with_service):
+        """N concurrent threads requesting the same range (cache miss) must
+        produce EXACTLY 1 repository call, and all threads get identical
+        results."""
+        import app.services.calendar as cal_module
+        cal, svc = cal_with_service
+        start = date(2026, 3, 23)
+        end = date(2026, 3, 29)
+        days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+
+        call_count = [0]
+        count_lock = threading.Lock()
+
+        def slow_execute(*args, **kwargs):
+            with count_lock:
+                call_count[0] += 1
+            time.sleep(0.1)
+            return {"items": []}
+
+        svc.events.return_value.list.return_value.execute.side_effect = slow_execute
+
+        results = []
+        results_lock = threading.Lock()
+
+        def worker():
+            r = cal_module.get_slots_disponibles_for_days(days)
+            with results_lock:
+                results.append(r)
+
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert call_count[0] == 1
+        assert len(results) == 5
+        first = results[0]
+        for r in results:
+            assert set(r.keys()) == set(first.keys())
+            for d in first:
+                assert r[d] == first[d]
+
+
 # ── crear_cita ─────────────────────────────────────────────────────────────────
 
 class TestCrearCita:
@@ -449,6 +535,36 @@ class TestReservarCita:
         mock_slots.assert_called_once()
         assert mock_slots.call_args.kwargs["mode"] == "evento"
 
+    def test_lock_timeout_returns_slot_taken(self, cal_with_service, monkeypatch):
+        """If the per-slot lock cannot be acquired within SLOT_LOCK_TIMEOUT_SEC,
+        reservar_cita returns (None, 'slot_taken') promptly and increments
+        the slot_lock_timeout metric — never blocks forever."""
+        import app.services.calendar.service as service_mod
+        from app.services.calendar.locks import slot_locks
+        from app.utils import metrics
+
+        monkeypatch.setattr(service_mod, "SLOT_LOCK_TIMEOUT_SEC", 0.2)
+
+        d = date(2026, 3, 26)
+        hora = "12:00"
+        lock = slot_locks.get(d, hora)
+        lock.acquire()  # held by "another thread" for the whole test
+
+        before = metrics._counters.get("slot_lock_timeout", 0)
+        try:
+            start = time.monotonic()
+            event_id, reason = service_mod.reservar_cita(
+                d, hora, "Ana", "34600000001", SERVICIOS["corte"]
+            )
+            elapsed = time.monotonic() - start
+        finally:
+            lock.release()
+
+        assert event_id is None
+        assert reason == "slot_taken"
+        assert elapsed < 2  # bounded by the (patched) timeout, not stuck forever
+        assert metrics._counters.get("slot_lock_timeout", 0) == before + 1
+
 
 class TestSlotSigueLibreMode:
     def test_default_mode_is_normal(self, cal_with_service):
@@ -529,6 +645,36 @@ class TestMoverCita:
             )
         assert result == ("new_evt", None)
         mock_metrics.inc.assert_called_once_with("move_duplicates")
+
+    def test_lock_timeout_returns_slot_taken(self, cal_with_service, monkeypatch):
+        """If the per-slot lock cannot be acquired within SLOT_LOCK_TIMEOUT_SEC,
+        mover_cita returns (None, 'slot_taken') promptly and increments the
+        slot_lock_timeout metric — never blocks forever."""
+        import app.services.calendar.service as service_mod
+        from app.services.calendar.locks import slot_locks
+        from app.utils import metrics
+
+        monkeypatch.setattr(service_mod, "SLOT_LOCK_TIMEOUT_SEC", 0.2)
+
+        d = date(2026, 3, 27)
+        hora = "13:00"
+        lock = slot_locks.get(d, hora)
+        lock.acquire()  # held by "another thread" for the whole test
+
+        before = metrics._counters.get("slot_lock_timeout", 0)
+        try:
+            start = time.monotonic()
+            new_event_id, reason = service_mod.mover_cita(
+                "old_evt", d, hora, "Ana", "34600000001", SERVICIOS["corte"]
+            )
+            elapsed = time.monotonic() - start
+        finally:
+            lock.release()
+
+        assert new_event_id is None
+        assert reason == "slot_taken"
+        assert elapsed < 2
+        assert metrics._counters.get("slot_lock_timeout", 0) == before + 1
 
 
 # ── cancelar_cita ──────────────────────────────────────────────────────────────

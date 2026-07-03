@@ -318,6 +318,8 @@ LOG_FILE: str = os.getenv("LOG_FILE", "")
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
 WHATSAPP_ACCESS_TOKEN    = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
 WHATSAPP_VERIFY_TOKEN    = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+# Graph API version — bump when Meta deprecates the current one.
+WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v23.0")
 # App Secret (Meta -> App Settings -> Basic -> App Secret).
 # Used to verify X-Hub-Signature-256 on every incoming webhook POST.
 WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
@@ -356,6 +358,8 @@ CITAS_CACHE_TTL_SEC = 180
 
 # ── Concurrency ────────────────────────────────────────────────────────────
 MAX_CONCURRENT_HANDLERS = 40
+# Max seconds to wait to acquire a per-slot booking lock before giving up.
+SLOT_LOCK_TIMEOUT_SEC = 10
 
 
 def validate_config() -> None:
