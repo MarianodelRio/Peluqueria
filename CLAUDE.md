@@ -90,7 +90,9 @@ Services are defined in `SERVICIOS` in `config.py` / `config.yaml` → `servicio
 - The slot cache key includes both `duracion_min` and `presencia_cliente_min` — calls with different durations or presence windows are cached separately.
 
 ### Day-picker fetch
-`_handle_book_select_service` calls `get_slots_disponibles_range(today, today+14d)` ONCE — single Calendar API call that populates the per-day slot cache, so subsequent single-day fetches are cache hits.
+`_handle_book_select_service` calls `get_slots_disponibles_for_days(get_next_days(BOOKING_WINDOW_DAYS))` ONCE — single Calendar API call over `[min(days), max(days)]` that populates the per-day slot cache, so subsequent single-day fetches are cache hits.
+
+`BOOKING_WINDOW_DAYS` comes from `config.yaml` → `ventana_busqueda_dias`. Note `get_next_days(n)` returns `today..today+n` inclusive (n+1 calendar days), so `lookaheads_dias.citas_cliente` must stay `>= ventana_busqueda_dias + 1` — otherwise `get_citas_futuras()` misses the furthest bookings and they vanish from move/cancel and from the `MAX_CITAS_ACTIVAS` count.
 
 ### Scheduler idempotency
 - Reminder job checks `Recordatorio: sí` before sending — skips if already sent.

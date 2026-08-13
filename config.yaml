@@ -26,7 +26,8 @@ horario:
     - ["10:00", "14:00"]
 
 # Dias hacia adelante que se ofrecen al cliente para elegir dia de cita.
-ventana_busqueda_dias: 14
+# Al cambiarlo, ajusta tambien lookaheads_dias.citas_cliente (ver mas abajo).
+ventana_busqueda_dias: 21
 
 # Servicios ofrecidos. Maximo 9 (limite de filas de lista de WhatsApp).
 servicios:
@@ -52,9 +53,11 @@ servicios:
     presencia_cliente_min: 180
 
 # Ventana de busqueda de citas en Google Calendar (dias desde hoy).
+# citas_cliente DEBE ser >= ventana_busqueda_dias + 1. Si se queda corto, las citas
+# mas lejanas no apareceran en "mover/cancelar" ni contaran para MAX_CITAS_ACTIVAS.
 lookaheads_dias:
-  citas_cliente: 15
-  citas_manuales: 15
+  citas_cliente: 22
+  citas_manuales: 22
 
 # Ventana de envio de recordatorios (horas antes de la cita).
 recordatorio_horas_antes:

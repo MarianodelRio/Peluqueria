@@ -158,7 +158,12 @@ horario:
     - ["17:00", "21:00"]
   # días no listados = cerrado (ej: domingo)
 
-ventana_busqueda_dias: 14  # días hacia adelante que se ofrecen al cliente
+ventana_busqueda_dias: 21  # días hacia adelante que se ofrecen al cliente
+
+lookaheads_dias:
+  citas_cliente: 22   # DEBE ser >= ventana_busqueda_dias + 1, o las citas más lejanas
+                      # no saldrán en "mover/cancelar" ni contarán para el límite por cliente
+  citas_manuales: 22  # ventana del job que confirma las citas creadas a mano
 
 servicios:
   corte:
