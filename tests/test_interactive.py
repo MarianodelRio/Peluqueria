@@ -58,24 +58,31 @@ class TestTrunc:
 
 class TestBuildMainMenu:
     def test_structure(self):
-        msg = build_main_menu()
+        with patch("app.utils.interactive.EVENTO_ACTIVO", False):
+            msg = build_main_menu()
         assert msg["type"] == "interactive"
         assert msg["interactive"]["type"] == "button"
 
     def test_three_buttons(self):
-        msg = build_main_menu()
+        with patch("app.utils.interactive.EVENTO_ACTIVO", False):
+            msg = build_main_menu()
         assert len(_buttons(msg)) == 3
 
     def test_button_ids(self):
-        ids = {b["reply"]["id"] for b in _buttons(build_main_menu())}
+        with patch("app.utils.interactive.EVENTO_ACTIVO", False):
+            msg = build_main_menu()
+        ids = {b["reply"]["id"] for b in _buttons(msg)}
         assert ids == {"menu_book", "menu_move", "menu_cancel"}
 
     def test_button_titles_under_20_chars(self):
-        for b in _buttons(build_main_menu()):
+        with patch("app.utils.interactive.EVENTO_ACTIVO", False):
+            msg = build_main_menu()
+        for b in _buttons(msg):
             assert len(b["reply"]["title"]) <= 20
 
     def test_footer_present(self):
-        msg = build_main_menu()
+        with patch("app.utils.interactive.EVENTO_ACTIVO", False):
+            msg = build_main_menu()
         assert "footer" in msg["interactive"]
 
     def test_evento_activo_false_still_three_buttons(self):

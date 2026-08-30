@@ -20,6 +20,7 @@ from app.utils.parser import (
     parse_nombre, parse_tel, parse_wa_id, parse_estado, parse_reminder,
     parse_cfg, parse_servicio_from_title,
 )
+from app.utils.slots import get_event_days
 
 from .client import client
 from .caches import citas_cache
@@ -165,7 +166,11 @@ def get_citas_futuras(identifier: str, phone: Optional[str] = None) -> list:
 
         service = client.get_service()
         now = datetime.now(TZ)
-        time_max = (now + timedelta(days=LOOKAHEAD_CITAS_CLIENTE_DIAS)).isoformat()
+        lookahead_dias = LOOKAHEAD_CITAS_CLIENTE_DIAS
+        event_days = get_event_days()
+        if event_days:
+            lookahead_dias = max(lookahead_dias, (event_days[-1] - now.date()).days + 1)
+        time_max = (now + timedelta(days=lookahead_dias)).isoformat()
 
         result = service.events().list(
             calendarId=GOOGLE_CALENDAR_ID,

@@ -25,7 +25,7 @@ import pytz
 from app.config import (
     TIMEZONE, ESTADO_EXPIRACION_MIN, HORARIO_BASE, BOOKING_WINDOW_DAYS,
     SERVICIOS, CITAS_CACHE_TTL_SEC, EVENTO_ACTIVO, ADMIN_PHONE, ADMIN_COMANDOS,
-    MAX_CITAS_ACTIVAS,
+    MAX_CITAS_ACTIVAS, EVENTO_DIAS,
 )
 from app.utils.admin import (
     build_status_report, build_help_message, read_log_tail, schedule_restart,
@@ -677,6 +677,8 @@ def _handle_move_select_cita(identifier: str, state: ConversationState, value: s
         nombre = "Cliente"
     state.move_source_nombre = nombre
     state.move_source_event_id = event_id
+    cita_fecha = cita['start'].date().isoformat()
+    state.mode = 'evento' if cita_fecha in EVENTO_DIAS else 'normal'
     state.step = BOOK_SELECT_SERVICE
     wa.send_interactive(identifier, build_service_select())
 

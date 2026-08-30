@@ -944,6 +944,33 @@ class TestMoveFlow:
         assert state.move_source_event_id == "evt1"
         assert state.step == conv.BOOK_SELECT_SERVICE
 
+    def test_move_select_event_day_cita_sets_mode_evento(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.MOVE_SELECT_CITA
+        state.move_citas = [self.make_cita("evt1")]
+        with patch.object(
+            conv, "EVENTO_DIAS", {"2026-03-25": [["10:00", "14:00"]]}
+        ):
+            send(interactive_id="move_appt_evt1")
+        state = conv._get(PHONE)
+        assert state.mode == "evento"
+        assert state.step == conv.BOOK_SELECT_SERVICE
+
+    def test_move_select_normal_day_cita_sets_mode_normal(self, mock_wa, mock_cal):
+        import app.handlers.conversation as conv
+        state = conv._get(PHONE)
+        state.step = conv.MOVE_SELECT_CITA
+        state.mode = "evento"
+        state.move_citas = [self.make_cita("evt1")]
+        with patch.object(
+            conv, "EVENTO_DIAS", {"2026-12-20": [["10:00", "14:00"]]}
+        ):
+            send(interactive_id="move_appt_evt1")
+        state = conv._get(PHONE)
+        assert state.mode == "normal"
+        assert state.step == conv.BOOK_SELECT_SERVICE
+
     def test_move_select_valid_event_uses_nombre_from_description(
         self, mock_wa, mock_cal
     ):

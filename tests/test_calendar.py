@@ -958,6 +958,93 @@ class TestGetCitasFuturas:
         result = cal.get_citas_futuras("34600000001", phone="34600000001")
         assert result == []
 
+    def test_lookahead_extends_to_cover_event_days(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        far_start = now + timedelta(days=27)
+        desc = (
+            "Nombre: Ana\nTelefono: 34600000001\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
+        event = make_gc_event(
+            "evtfar", "Corte de pelo - Ana", desc,
+            far_start, far_start + timedelta(minutes=30),
+        )
+
+        def fake_list(**kwargs):
+            time_max = datetime.fromisoformat(kwargs["timeMax"])
+            items = [event] if far_start <= time_max else []
+            m = MagicMock()
+            m.execute.return_value = {"items": items}
+            return m
+
+        svc.events.return_value.list.side_effect = fake_list
+
+        with patch(
+            "app.services.calendar.queries.get_event_days",
+            return_value=[(now + timedelta(days=30)).date()],
+        ):
+            result = cal.get_citas_futuras("34600000001", phone="34600000001")
+        assert any(c["id"] == "evtfar" for c in result)
+
+    def test_lookahead_covers_late_appointment_last_event_day(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        far_start = now + timedelta(days=30, hours=2)
+        desc = (
+            "Nombre: Ana\nTelefono: 34600000001\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
+        event = make_gc_event(
+            "evtlate", "Corte de pelo - Ana", desc,
+            far_start, far_start + timedelta(minutes=30),
+        )
+
+        def fake_list(**kwargs):
+            time_max = datetime.fromisoformat(kwargs["timeMax"])
+            items = [event] if far_start <= time_max else []
+            m = MagicMock()
+            m.execute.return_value = {"items": items}
+            return m
+
+        svc.events.return_value.list.side_effect = fake_list
+
+        with patch(
+            "app.services.calendar.queries.get_event_days",
+            return_value=[(now + timedelta(days=30)).date()],
+        ):
+            result = cal.get_citas_futuras("34600000001", phone="34600000001")
+        assert any(c["id"] == "evtlate" for c in result)
+
+    def test_lookahead_not_extended_without_event_days(self, cal_with_service):
+        cal, svc = cal_with_service
+        now = datetime.now(TZ)
+        far_start = now + timedelta(days=27)
+        desc = (
+            "Nombre: Ana\nTelefono: 34600000001\n"
+            "Estado: confirmada\nRecordatorio: no"
+        )
+        event = make_gc_event(
+            "evtfar", "Corte de pelo - Ana", desc,
+            far_start, far_start + timedelta(minutes=30),
+        )
+
+        def fake_list(**kwargs):
+            time_max = datetime.fromisoformat(kwargs["timeMax"])
+            items = [event] if far_start <= time_max else []
+            m = MagicMock()
+            m.execute.return_value = {"items": items}
+            return m
+
+        svc.events.return_value.list.side_effect = fake_list
+
+        with patch(
+            "app.services.calendar.queries.get_event_days",
+            return_value=[],
+        ):
+            result = cal.get_citas_futuras("34600000001", phone="34600000001")
+        assert result == []
+
 
 # ── _get_events_in_range ──────────────────────────────────────────────────────────
 
