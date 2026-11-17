@@ -1260,6 +1260,35 @@ class TestComputeSlots:
         result = cal_module._compute_slots(d, [cfg_ev])
         assert result == []
 
+    def test_multiple_horario_cfg_combine_into_split_schedule(self):
+        """Two [CFG] HORARIO events the same day combine into two ranges
+        (e.g. a split morning/afternoon shift on a normally-closed day)."""
+        import app.services.calendar as cal_module
+        d = date(2026, 3, 23)  # Monday — no HORARIO_BASE entry (normally closed)
+        cfg_morning = {
+            'id': 'cfg1', 'title': '[CFG] HORARIO 10:00-14:00', 'description': '',
+            'start': aware(2026, 3, 23, 0, 0), 'end': aware(2026, 3, 23, 23, 59),
+            'all_day': True,
+        }
+        cfg_afternoon = {
+            'id': 'cfg2', 'title': '[CFG] HORARIO 16:00-20:00', 'description': '',
+            'start': aware(2026, 3, 23, 0, 0), 'end': aware(2026, 3, 23, 23, 59),
+            'all_day': True,
+        }
+        result = cal_module._compute_slots(
+            d, [cfg_morning, cfg_afternoon],
+            duracion_min=30, presencia_cliente_min=30,
+        )
+        assert "10:00" in result
+        assert "13:30" in result
+        assert "16:00" in result
+        assert "19:30" in result
+        # The gap between the two ranges must not produce slots
+        assert "14:00" not in result
+        assert "14:30" not in result
+        assert "15:00" not in result
+        assert "15:30" not in result
+
 
 # ── get_slots_disponibles_range ───────────────────────────────────────────────────
 

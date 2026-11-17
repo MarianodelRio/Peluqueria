@@ -66,7 +66,7 @@ Recordatorio: no | sí
 Title-based config events — never treated as appointments:
 - `[CFG] CERRADO` → day is closed
 - `[CFG] VACACIONES` → range is closed
-- `[CFG] HORARIO HH:MM-HH:MM` → overrides schedule for that day
+- `[CFG] HORARIO HH:MM-HH:MM` → overrides schedule for that day. Multiple `[CFG] HORARIO` events on the same day combine into multiple ranges (e.g. a split morning/afternoon shift with a gap) — one event per range.
 
 ### Thread safety
 - Per-phone locks (`_get_phone_lock(phone)`) in `conversation.py` — serialize concurrent messages from the same number.

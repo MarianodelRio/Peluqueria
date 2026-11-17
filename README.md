@@ -24,6 +24,7 @@ No hay base de datos — Google Calendar es la única fuente de verdad.
 - **Cerrar un día puntual**: evento de título `[CFG] CERRADO`
 - **Cerrar un rango (vacaciones)**: evento de título `[CFG] VACACIONES`
 - **Cambiar horario un día**: evento de título `[CFG] HORARIO 10:00-13:00`
+- **Turno partido un día puntual**: crea dos eventos `[CFG] HORARIO` ese mismo día, uno por tramo (ej. `[CFG] HORARIO 10:00-14:00` y `[CFG] HORARIO 16:00-20:00`)
 
 ### Procesos automáticos
 

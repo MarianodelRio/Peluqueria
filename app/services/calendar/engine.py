@@ -45,12 +45,15 @@ def compute_slots(
 
     Priority chain for base slots:
       [CFG] CERRADO / VACACIONES  → []  (hard close, highest priority)
-      [CFG] HORARIO HH:MM-HH:MM  → special_schedule overrides everything
-      event_horario               → event-specific ranges (only if no special_schedule)
+      [CFG] HORARIO HH:MM-HH:MM  → special_schedules override everything.
+                                    Multiple [CFG] HORARIO events on the same
+                                    day combine into multiple ranges (e.g. a
+                                    split morning/afternoon shift with a gap).
+      event_horario               → event-specific ranges (only if no special_schedules)
       HORARIO_BASE / weekday      → normal fallback
     """
     is_closed = False
-    special_schedule = None
+    special_schedules = []
     blocking_events = []
 
     for ev in events:
@@ -60,8 +63,8 @@ def compute_slots(
                 logger.info(f"[CAL] Day {d} is closed: {ev['title']}")
                 is_closed = True
                 break
-            elif cfg['type'] == 'horario' and special_schedule is None:
-                special_schedule = cfg
+            elif cfg['type'] == 'horario':
+                special_schedules.append(cfg)
                 logger.info(
                     f"[CAL] Special schedule on {d}: {cfg['start']}-{cfg['end']}"
                 )
@@ -71,11 +74,13 @@ def compute_slots(
     if is_closed:
         return []
 
-    if special_schedule:
-        base_slots = generate_slots(
-            special_schedule['start'], special_schedule['end'],
-            presencia_cliente_min, step_min=CITA_DURACION_MIN,
-        )
+    if special_schedules:
+        base_slots = []
+        for cfg in special_schedules:
+            base_slots.extend(generate_slots(
+                cfg['start'], cfg['end'],
+                presencia_cliente_min, step_min=CITA_DURACION_MIN,
+            ))
     elif event_horario is not None:
         # event_horario is a list of (start_str, end_str) tuples
         base_slots = []
